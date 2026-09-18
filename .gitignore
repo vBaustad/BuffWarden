@@ -1,0 +1,16 @@
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+.vscode/
+.idea/
+
+# WoW saved variables (live in WTF, not the addon folder - never commit)
+*.lua.bak
+SavedVariables/
+
+# LibForever-1.0 is a directory junction to S:\forever-addons\LibForever-1.0 (its own repo).
+# Releases should pull it in via a .pkgmeta externals entry once that repo is on GitHub.
+Libs/LibForever-1.0/

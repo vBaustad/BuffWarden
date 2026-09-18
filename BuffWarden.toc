@@ -1,0 +1,19 @@
+## Interface: 120100, 120105
+## Title: BuffWarden
+## Notes: Keeps watch over your buffs: shows what you're missing from yourself or your group, and lets you cast or ask for it in one click. Built for WoW: Forever.
+## Author: vebjorn
+## Version: 0.1.0
+## IconTexture: Interface\Icons\Spell_Holy_WordFortitude
+## SavedVariables: BuffWardenDB
+## AddonCompartmentFunc: BuffWarden_OnAddonCompartmentClick
+## AddonCompartmentFuncOnEnter: BuffWarden_OnAddonCompartmentEnter
+## AddonCompartmentFuncOnLeave: BuffWarden_OnAddonCompartmentLeave
+## X-Category: Buffs
+## X-License: MIT
+
+Libs\LibStub\LibStub.lua
+Libs\LibForever-1.0\LibForever-1.0.lua
+Libs\LibForever-1.0\Launcher.lua
+
+Data.lua
+Core.lua
