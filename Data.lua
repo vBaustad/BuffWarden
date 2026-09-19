@@ -12,7 +12,10 @@ local ADDON, BW = ...
 --   who       nil = everyone, "mana" = only classes that use mana
 --   spellID   any rank of the spell; its texture is the icon (works even when you can't cast it)
 --   icon      fallback icon path, only if the client doesn't know the spell ID
---   default   false = off until turned on with /bw toggle <key>
+--   minLevel  level a groupmate needs before we suggest asking them for it (their spellbooks can't be read)
+--   talent    a talent spell: only suggest asking when someone in the group already carries the buff,
+--             since that proves one of them has the talent
+--   default   false = off until turned on in the settings (or /bwarden toggle <key>)
 
 BW.MANA_CLASSES = {
     PRIEST = true, MAGE = true, WARLOCK = true, DRUID = true,
@@ -29,27 +32,29 @@ BW.BLESSING_NAMES = BLESSINGS
 
 BW.BUFFS = {
     -- Group buffs -------------------------------------------------------------
-    { key = "fortitude", spellID = 1243, class = "PRIEST", scope = "group",
+    { key = "fortitude", spellID = 1243, class = "PRIEST", scope = "group", minLevel = 1,
       names = { "Power Word: Fortitude", "Prayer of Fortitude" },
       cast = { "Power Word: Fortitude" },
       icon = "Interface\\Icons\\Spell_Holy_WordFortitude" },
     { key = "spirit", spellID = 14752, class = "PRIEST", scope = "group", who = "mana",
+      minLevel = 30, talent = true,
       names = { "Divine Spirit", "Prayer of Spirit" },
       cast = { "Divine Spirit" },
       icon = "Interface\\Icons\\Spell_Holy_DivineSpirit" },
     { key = "shadowprot", spellID = 976, class = "PRIEST", scope = "group", default = false,
+      minLevel = 30,
       names = { "Shadow Protection", "Prayer of Shadow Protection" },
       cast = { "Shadow Protection" },
       icon = "Interface\\Icons\\Spell_Shadow_AntiShadow" },
-    { key = "intellect", spellID = 1459, class = "MAGE", scope = "group", who = "mana",
+    { key = "intellect", spellID = 1459, class = "MAGE", scope = "group", who = "mana", minLevel = 1,
       names = { "Arcane Intellect", "Arcane Brilliance" },
       cast = { "Arcane Intellect" },
       icon = "Interface\\Icons\\Spell_Holy_MagicalSentry" },
-    { key = "wild", spellID = 1126, class = "DRUID", scope = "group",
+    { key = "wild", spellID = 1126, class = "DRUID", scope = "group", minLevel = 1,
       names = { "Mark of the Wild", "Gift of the Wild" },
       cast = { "Mark of the Wild" },
       icon = "Interface\\Icons\\Spell_Nature_Regeneration" },
-    { key = "blessing", spellID = 19740, class = "PALADIN", scope = "blessing",
+    { key = "blessing", spellID = 19740, class = "PALADIN", scope = "blessing", minLevel = 4,
       names = BLESSINGS,
       -- Core picks per target: Kings if known, else Wisdom for mana users and Might for the rest.
       cast = { "Blessing of Kings", "Blessing of Wisdom", "Blessing of Might" },

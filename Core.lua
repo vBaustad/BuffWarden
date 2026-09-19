@@ -16,15 +16,17 @@ local defaults = {
     scale        = 1,
     point        = nil,     -- { point, relPoint, x, y }
     disabled     = {},      -- [buffKey] = true / false (overrides the buff's default)
-    askText      = "Could I get %s, please? :)",
     readyCheck   = true,    -- print what's missing on a ready check
 }
+
+local ASK_TEXT = "Could I get %s, please? :)"
 
 local function BuffEnabled(def)
     local v = BW.db.disabled[def.key]
     if v == nil then return def.default ~= false end
     return not v
 end
+BW.BuffEnabled = BuffEnabled
 
 -- ---------------------------------------------------------------------------
 -- Helpers
@@ -68,24 +70,63 @@ local function FmtTime(s)
     return ("%ds"):format(math.floor(s))
 end
 
--- All helpful auras on a unit, by name: { expires = remaining seconds or math.huge, source = unit }.
+-- Every aura name BuffWarden cares about, and the instance IDs of those auras as last seen, so an
+-- aura event about anything else (debuffs, procs, trinkets) can be ignored without a rescan.
+local watchedNames
+local watchedIDs = {}
+local function IsWatchedName(name)
+    if not watchedNames then
+        watchedNames = {}
+        for _, def in ipairs(BW.BUFFS) do
+            for _, n in ipairs(def.names) do watchedNames[n] = true end
+        end
+    end
+    return watchedNames[name]
+end
+
+-- Addon restrictions (combat, encounters, restricted maps...) make aura data secret, and on this client
+-- asking for a secret aura is a Lua error for addon code, not a secret value. So we ask first, and while
+-- auras are secret BuffWarden doesn't look at all.
+local function AurasSecret()
+    return C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret() or false
+end
+
+local function AuraIndexSecret(unit, i)
+    return C_Secrets and C_Secrets.ShouldUnitAuraIndexBeSecret
+        and C_Secrets.ShouldUnitAuraIndexBeSecret(unit, i, "HELPFUL") or false
+end
+
+-- All helpful auras on a unit, by name: { left = seconds or math.huge, source = unit or nil (unknown) }.
+-- Second return: true when some aura couldn't be read (secret), so this unit's buffs are unknown.
 local function ReadAuras(unit)
-    local out = {}
+    local out, unreadable = {}, false
+    if AurasSecret() then return out, true end
     local now = GetTime()
     for i = 1, 60 do
-        local a = C_UnitAuras.GetAuraDataByIndex(unit, i, "HELPFUL")
-        if not a then break end
-        local name = Clean(a.name)
-        if name then
+        local a
+        if AuraIndexSecret(unit, i) then
+            unreadable = true            -- skip it, but keep going: later indexes may be readable
+        else
+            a = C_UnitAuras.GetAuraDataByIndex(unit, i, "HELPFUL")
+            if not a then break end
+        end
+        local name = a and Clean(a.name)
+        if not a then
+            -- secret index, already noted
+        elseif not name then
+            unreadable = true
+        else
             local exp = Clean(a.expirationTime) or 0
             out[name] = {
                 left = (exp > 0) and (exp - now) or math.huge,
                 source = Clean(a.sourceUnit),
                 icon = Clean(a.icon),
             }
+            local id = Clean(a.auraInstanceID)
+            if id and IsWatchedName(name) then watchedIDs[id] = true end
         end
     end
-    return out
+    return out, unreadable
 end
 
 -- The first matching aura that still has enough time left. Returns found, secondsLeftIfExpiring.
@@ -115,6 +156,7 @@ local function ScanGroup()
     end
 
     local members, providers = {}, {}
+    wipe(watchedIDs)
     for _, u in ipairs(units) do
         if UnitExists(u) and UnitIsConnected(u) then
             local _, class = UnitClass(u)
@@ -124,12 +166,14 @@ local function ScanGroup()
                 table.insert(providers[class], u)
             end
             if not UnitIsDeadOrGhost(u) and (isMe or UnitIsVisible(u)) then
+                local auras, unreadable = ReadAuras(u)
                 members[#members + 1] = {
                     unit = isMe and "player" or u,
                     name = GetUnitName(u, true) or "?",
                     class = class,
                     isMe = isMe,
-                    auras = ReadAuras(u),
+                    auras = auras,
+                    unreadable = unreadable,   -- buffs unknown: never flag this one as missing anything
                 }
             end
         end
@@ -152,16 +196,38 @@ local function BlessingFor(m)
     return FirstKnown({ "Blessing of Wisdom", "Blessing of Salvation", "Blessing of Light" })
 end
 
+-- Does this member carry a blessing from us (byMe) or from another paladin? A blessing whose caster
+-- can't be read counts either way: better to miss a rebuff than to nag about one that's there.
 local function IsBlessedBy(m, byMe)
+    if m.unreadable then return true end
     for _, n in ipairs(BW.BLESSING_NAMES) do
         local a = m.auras[n]
         if a and a.left > BW.db.threshold then
-            local mine = a.source and UnitIsUnit(a.source, "player")
-            if byMe and mine then return true end
-            if not byMe and not mine then return true, a.source end
+            if not a.source then return true end
+            local mine = UnitIsUnit(a.source, "player")
+            if byMe == mine then return true end
         end
     end
     return false
+end
+
+-- Groupmates of the buff's class who could plausibly cast it: high enough level, and for a talent,
+-- only once someone in the group is seen carrying the buff.
+local function Providers(def, list, members)
+    if not list then return nil end
+    if def.talent then
+        local seen = false
+        for _, m in ipairs(members) do
+            for _, n in ipairs(def.names) do if m.auras[n] then seen = true end end
+        end
+        if not seen then return nil end
+    end
+    local out = {}
+    for _, u in ipairs(list) do
+        local lvl = Clean(UnitLevel(u))
+        if not lvl or lvl <= 0 or lvl >= (def.minLevel or 1) then out[#out + 1] = u end
+    end
+    return #out > 0 and out or nil
 end
 
 -- Builds the list of things to show. Each entry:
@@ -179,7 +245,7 @@ function BW:Compute()
             local mine = def.class == myClass and FirstKnown(def.cast)
 
             if def.scope == "self" then
-                if mine then
+                if mine and not me.unreadable then
                     local ok, left = HasBuff(me.auras, def.names)
                     if not ok then
                         entries[#entries + 1] = { key = def.key, def = def, mode = "cast", spell = mine,
@@ -191,7 +257,7 @@ function BW:Compute()
                 if mine then
                     local missing, target, expiring = {}, nil, nil
                     for _, m in ipairs(members) do
-                        if Eligible(def, m) then
+                        if Eligible(def, m) and not m.unreadable then
                             local ok, left = HasBuff(m.auras, def.names)
                             if not ok then
                                 missing[#missing + 1] = m
@@ -204,11 +270,12 @@ function BW:Compute()
                         entries[#entries + 1] = { key = def.key, def = def, mode = "cast", spell = mine,
                             targets = missing, target = target or missing[1], expiring = expiring }
                     end
-                elseif providers[def.class] and Eligible(def, me) then
+                elseif Eligible(def, me) and not me.unreadable then
+                    local who = Providers(def, providers[def.class], members)
                     local ok, left = HasBuff(me.auras, def.names)
-                    if not ok then
+                    if who and not ok then
                         entries[#entries + 1] = { key = def.key, def = def, mode = "ask", spell = def.cast[1],
-                            providers = providers[def.class], expiring = left }
+                            providers = who, expiring = left }
                     end
                 end
 
@@ -229,8 +296,8 @@ function BW:Compute()
                     end
                 end
                 -- From the other paladins: you should carry one blessing from each of them.
-                local pals = providers.PALADIN
-                if pals and #pals > 0 then
+                local pals = Providers(def, providers.PALADIN, members)
+                if pals and not me.unreadable then
                     local have, from = 0, {}
                     for _, n in ipairs(BW.BLESSING_NAMES) do
                         local a = me.auras[n]
@@ -239,7 +306,7 @@ function BW:Compute()
                             if a.source then from[#from + 1] = a.source end
                         end
                     end
-                    if have < #pals then
+                    if have < #pals and #from == have then
                         local ask = {}
                         for _, p in ipairs(pals) do
                             local gave = false
@@ -310,9 +377,16 @@ local SIZE, GAP = 36, 4
 local holder, bar, handle
 local buttons = {}
 
+-- Always pinned by its top-left corner, so the first icon stays put and the row grows to the right.
+-- (StopMovingOrSizing re-anchors to whatever point is nearest, often CENTER or RIGHT; a bar anchored
+-- like that shrinks toward the middle or the right when fewer icons are shown.)
 local function SavePosition()
-    local p, _, rp, x, y = bar:GetPoint(1)
-    BW.db.point = { p, rp, x, y }
+    if InCombatLockdown() then return end
+    local l, t = bar:GetLeft(), bar:GetTop()
+    if not (l and t) then return end
+    bar:ClearAllPoints()
+    bar:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", l, t)
+    BW.db.point = { "TOPLEFT", "BOTTOMLEFT", l, t }
 end
 
 local function ButtonOnEnter(self)
@@ -320,9 +394,13 @@ local function ButtonOnEnter(self)
     if not e then return end
     GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
     GameTooltip:AddLine(e.spell, 1, 0.82, 0.3)
+    if BW.stale and not e.preview then
+        GameTooltip:AddLine("As of the pull - buffs can't be read in combat. Updates when combat ends.",
+            0.6, 0.6, 0.6, true)
+    end
     if e.preview then
         GameTooltip:AddLine(e.preview, 1, 1, 1, true)
-        GameTooltip:AddLine("Preview - drag to move, /bw lock when done.", 0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine("Preview - drag to move, /bwarden lock when done.", 0.6, 0.6, 0.6, true)
         GameTooltip:Show()
         return
     end
@@ -375,12 +453,20 @@ local function MakeButton(i)
     b.count:SetPoint("BOTTOMRIGHT", -2, 2)
     b.timer = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     b.timer:SetPoint("TOP", 0, -2)
+    -- In combat every aura is secret to addons, so the bar can't know what changed: it keeps the state
+    -- from the pull and wears this clock until combat ends. Plain textures, so they may change in combat.
+    b.stale = b:CreateTexture(nil, "OVERLAY", nil, 2)
+    b.stale:SetSize(14, 14)
+    b.stale:SetPoint("BOTTOMLEFT", 1, 1)
+    b.stale:SetTexture("Interface\\Icons\\INV_Misc_PocketWatch_01")
+    b.stale:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    b.stale:Hide()
 
     b:SetScript("OnEnter", ButtonOnEnter)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
     -- While unlocked the whole bar can be dragged by any of its (preview) buttons.
     b:RegisterForDrag("LeftButton")
-    b:SetScript("OnDragStart", function() if not BW.db.locked then bar:StartMoving() end end)
+    b:SetScript("OnDragStart", function() BW:StartDrag() end)
     b:SetScript("OnDragStop", function() bar:StopMovingOrSizing(); SavePosition() end)
     buttons[i] = b
     return b
@@ -399,6 +485,7 @@ function BW:CreateBar()
     local p = self.db.point
     if p then bar:SetPoint(p[1], UIParent, p[2], p[3], p[4])
     else bar:SetPoint("CENTER", UIParent, "CENTER", 0, -180) end
+    SavePosition()   -- converts an older saved anchor (or the default) to top-left
 
     -- Unlocked marker: a blue outline drawn exactly on the icons (nothing sticks out past them, so the
     -- icons themselves meet the screen edge). Mouse goes straight through to the buttons, which drag.
@@ -418,10 +505,21 @@ function BW:CreateBar()
     Edge("TOPRIGHT", "BOTTOMRIGHT", 2)
     -- The gaps between icons drag too.
     bar:RegisterForDrag("LeftButton")
-    bar:SetScript("OnDragStart", function() if not BW.db.locked then bar:StartMoving() end end)
+    bar:SetScript("OnDragStart", function() BW:StartDrag() end)
     bar:SetScript("OnDragStop", function() bar:StopMovingOrSizing(); SavePosition() end)
 
     self:ApplyCombatSetting()
+end
+
+-- The bar holds secure buttons, so it can't be moved in combat (only reachable when the bar is set
+-- to stay visible in combat).
+function BW:StartDrag()
+    if self.db.locked then return end
+    if InCombatLockdown() then
+        print(TAG .. ": the bar can't be moved during combat.")
+        return
+    end
+    bar:StartMoving()
 end
 
 function BW:ApplyCombatSetting()
@@ -431,6 +529,16 @@ function BW:ApplyCombatSetting()
     else
         UnregisterStateDriver(holder, "visibility")
         holder:Show()
+    end
+end
+
+-- Marks the bar as "as of the pull" (in combat) or live again. Only non-protected visuals change here.
+function BW:SetStale(stale)
+    self.stale = stale and true or nil
+    for _, b in ipairs(buttons) do
+        b.stale:SetShown(stale and b.entry ~= nil and not b.entry.preview)
+        b.icon:SetAlpha(stale and 0.55 or 1)
+        b.border:SetAlpha(stale and 0.5 or 1)
     end
 end
 
@@ -458,22 +566,23 @@ function BW:Apply(entries)
         b.count:SetText((e.mode == "cast" and #e.targets > 1) and #e.targets or "")
         b.timer:SetText(e.expiring and FmtTime(e.expiring) or "")
 
-        b:SetAttribute("type", nil)
-        b:SetAttribute("spell", nil)
-        b:SetAttribute("unit", nil)
-        b:SetAttribute("macrotext", nil)
+        -- Click action; the secure attributes are only touched when it actually changes.
+        local typ, spell, unit, macro
         if e.preview then
             -- placeholders: no click actions
         elseif e.mode == "cast" then
-            b:SetAttribute("type", "spell")
-            b:SetAttribute("spell", e.spell)
-            b:SetAttribute("unit", e.target.unit)
+            typ, spell, unit = "spell", e.spell, e.target.unit
         elseif e.providers[1] then
             local who = GetUnitName(e.providers[1], true)
-            if who then
-                b:SetAttribute("type", "macro")
-                b:SetAttribute("macrotext", "/w " .. who .. " " .. self.db.askText:format(e.spell))
-            end
+            if who then typ, macro = "macro", "/w " .. who .. " " .. ASK_TEXT:format(e.spell) end
+        end
+        local action = (typ or "") .. "|" .. (spell or "") .. "|" .. (unit or "") .. "|" .. (macro or "")
+        if b.action ~= action then
+            b.action = action
+            b:SetAttribute("type", typ)
+            b:SetAttribute("spell", spell)
+            b:SetAttribute("unit", unit)
+            b:SetAttribute("macrotext", macro)
         end
         b:Show()
     end
@@ -492,23 +601,36 @@ end
 -- ---------------------------------------------------------------------------
 -- Refresh
 -- ---------------------------------------------------------------------------
+-- In combat the bar can't change anyway, so nothing is read until it ends (PLAYER_REGEN_ENABLED
+-- refreshes). While auras are secret outside combat (an instance encounter, a restricted map) we can't
+-- know what's missing, so the bar shows nothing rather than a guess; ADDON_RESTRICTION_STATE_CHANGED
+-- brings it back.
 function BW:Refresh()
     if not self.db then return end
-    local entries = self:Compute()
+    if InCombatLockdown() then
+        self.dirty = true
+        return
+    end
+    local entries = {}
+    self.restricted = AurasSecret()
+    if not self.restricted then entries = self:Compute() end
     self.entries = entries
-    if LIB and LIB.SetLauncherBadge then LIB.SetLauncherBadge("BuffWarden", #entries) end
     self:Apply(entries)
 end
 
 function BW:ScheduleRefresh()
     if self.timer then return end
-    self.timer = C_Timer.NewTimer(0.3, function()
+    self.timer = C_Timer.NewTimer(1, function()
         BW.timer = nil
         BW:Refresh()
     end)
 end
 
 function BW:Report(prefix)
+    if self.restricted or InCombatLockdown() then
+        print(TAG .. ": " .. (prefix or "") .. "buffs can't be read right now (combat or an encounter).")
+        return
+    end
     local entries = self.entries or {}
     if #entries == 0 then print(TAG .. ": " .. (prefix or "") .. "all buffed up.") return end
     local cast, ask = {}, {}
@@ -526,10 +648,21 @@ end
 -- ---------------------------------------------------------------------------
 -- Launcher, compartment, slash
 -- ---------------------------------------------------------------------------
-local function ToggleLock()
-    BW.db.locked = not BW.db.locked
-    print(TAG .. ": bar " .. (BW.db.locked and "locked." or "unlocked - showing a preview, drag it into place."))
-    BW:Refresh()
+-- Safe in combat: the bar itself only changes once combat ends (Apply waits), and we say so.
+function BW:SetLocked(locked)
+    self.db.locked = locked and true or false
+    local msg = self.db.locked and "locked." or "unlocked - showing a preview, drag it into place."
+    if InCombatLockdown() then msg = msg:gsub("%.$", "") .. " (once combat ends)." end
+    print(TAG .. ": bar " .. msg)
+    self:Refresh()
+end
+
+local function ToggleLock() BW:SetLocked(not BW.db.locked) end
+
+local function MissingText()
+    if BW.restricted then return "Buffs can't be read right now." end
+    local n = BW.entries and #BW.entries or 0
+    return n == 0 and "All buffed up." or (n .. " buff" .. (n == 1 and "" or "s") .. " missing")
 end
 
 local function OnLauncherClick(button)
@@ -552,28 +685,45 @@ function BW:RegisterLauncher()
         id = "BuffWarden", label = "BuffWarden", order = 45,
         icon = "Interface\\AddOns\\BuffWarden\\Media\\notch",
         onClick = OnLauncherClick,
-        status = function()
-            local n = BW.entries and #BW.entries or 0
-            return n == 0 and "All buffed up." or (n .. " buff" .. (n == 1 and "" or "s") .. " missing")
-        end,
+        status = function() return MissingText() end,
         tooltip = { "Left-click: lock / unlock the bar", "Right-click: list what's missing" },
     }, self.db)
 end
 
-SLASH_BUFFWARDEN1 = "/buffwarden"
-SLASH_BUFFWARDEN2 = "/bw"
+-- Minimap button (LibDBIcon through LibForever). Left-click does what the launcher button does.
+function BW:RegisterMinimap()
+    if not (LIB and LIB.RegisterMinimapButton) then return end
+    LIB.RegisterMinimapButton("BuffWarden", {
+        icon = "Interface\\AddOns\\BuffWarden\\Media\\minimap",
+        label = "BuffWarden",
+        OnClick = function(_, button)
+            if button == "RightButton" then BW:OpenOptions() else OnLauncherClick("LeftButton") end
+        end,
+        OnTooltipShow = function(tt)
+            tt:AddLine("BuffWarden", 1, 0.82, 0.3)
+            tt:AddLine(MissingText(), 1, 1, 1)
+            tt:AddLine("Left-click: lock / unlock the bar", 0.8, 0.8, 0.8)
+            tt:AddLine("Right-click: settings", 0.8, 0.8, 0.8)
+        end,
+    }, self.db)
+end
+
+-- Not /bw: BigWigs owns that one.
+SLASH_BUFFWARDEN1 = "/bwarden"
+SLASH_BUFFWARDEN2 = "/buffwarden"
 SlashCmdList.BUFFWARDEN = function(msg)
     msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
     local cmd, arg = msg:match("^(%S+)%s*(.*)$")
     local db = BW.db
     if cmd == "lock" or cmd == "unlock" or cmd == "move" then
-        db.locked = (cmd == "lock")
-        print(TAG .. ": bar " .. (db.locked and "locked." or "unlocked - showing a preview, drag it into place."))
+        BW:SetLocked(cmd == "lock")
+        return
     elseif cmd == "reset" then
         if InCombatLockdown() then print(TAG .. ": not in combat.") return end
         db.point = nil
         bar:ClearAllPoints()
         bar:SetPoint("CENTER", UIParent, "CENTER", 0, -180)
+        SavePosition()
         print(TAG .. ": position reset.")
     elseif cmd == "scale" and tonumber(arg) then
         if InCombatLockdown() then print(TAG .. ": not in combat.") return end
@@ -585,7 +735,8 @@ SlashCmdList.BUFFWARDEN = function(msg)
     elseif cmd == "combat" then
         db.hideInCombat = not db.hideInCombat
         BW:ApplyCombatSetting()
-        print(TAG .. ": " .. (db.hideInCombat and "hidden in combat." or "shown in combat."))
+        print(TAG .. ": " .. (db.hideInCombat and "hidden in combat" or "shown in combat")
+            .. (InCombatLockdown() and " (from the next fight)." or "."))
     elseif cmd == "toggle" and arg ~= "" then
         for _, def in ipairs(BW.BUFFS) do
             if def.key == arg then
@@ -595,9 +746,9 @@ SlashCmdList.BUFFWARDEN = function(msg)
                 return
             end
         end
-        print(TAG .. ": unknown buff '" .. arg .. "'. See /bw list.")
+        print(TAG .. ": unknown buff '" .. arg .. "'. See /bwarden list.")
     elseif cmd == "list" then
-        print(TAG .. ": watched buffs (/bw toggle <key>):")
+        print(TAG .. ": watched buffs (/bwarden toggle <key>):")
         for _, def in ipairs(BW.BUFFS) do
             print(("  %s%s|r  %s - %s"):format(BuffEnabled(def) and "|cff66ff66" or "|cffff6666",
                 def.key, def.class:lower(), def.names[1]))
@@ -611,18 +762,25 @@ SlashCmdList.BUFFWARDEN = function(msg)
                 for _, s in ipairs(def.cast) do print(("  %s: %s"):format(s, Knows(s) and "known" or "-")) end
             end
         end
-        for name, a in pairs(ReadAuras("player")) do
+        local auras, unreadable = ReadAuras("player")
+        if unreadable then print("  (some auras are secret right now)") end
+        for name, a in pairs(auras) do
             print(("  aura: %s (%s)"):format(name, a.left == math.huge and "no timer" or FmtTime(a.left)))
         end
     elseif cmd == "status" or cmd == "report" then
         BW:Report()
-    else
+    elseif cmd == "welcome" then
+        if LIB and LIB.OpenWelcome then LIB.OpenWelcome("BuffWarden") end
+    elseif cmd == "help" then
         print(TAG .. " v" .. BW.version .. " commands:")
-        print("  /bw unlock | lock | reset | scale <0.5-2>")
-        print("  /bw time <seconds>  - refresh buffs with less than this left (now " .. db.threshold .. ")")
-        print("  /bw combat  - toggle hiding in combat")
-        print("  /bw list | toggle <key>  - choose which buffs to watch")
-        print("  /bw status | debug")
+        print("  /bwarden  - open the settings")
+        print("  /bwarden unlock | lock | reset | scale <0.5-2>")
+        print("  /bwarden time <seconds>  - refresh buffs with less than this left (now " .. db.threshold .. ")")
+        print("  /bwarden combat  - toggle hiding in combat")
+        print("  /bwarden list | toggle <key>  - choose which buffs to watch")
+        print("  /bwarden status | welcome")
+    else
+        if BW.OpenOptions then BW:OpenOptions() end
     end
     BW:Refresh()
 end
@@ -637,35 +795,69 @@ f:RegisterEvent("GROUP_ROSTER_UPDATE")
 f:RegisterEvent("UNIT_AURA")
 f:RegisterEvent("UNIT_CONNECTION")
 f:RegisterEvent("PLAYER_REGEN_ENABLED")
+f:RegisterEvent("PLAYER_REGEN_DISABLED")
 f:RegisterEvent("SPELLS_CHANGED")
 f:RegisterEvent("PLAYER_LEVEL_UP")
 f:RegisterEvent("READY_CHECK")
-f:SetScript("OnEvent", function(_, event, unit)
+f:RegisterEvent("ADDON_RESTRICTION_STATE_CHANGED")
+-- Is this aura update about a buff we watch? Full updates and unreadable ones count; otherwise only
+-- added watched buffs, and removed or changed auras we saw as watched on the last scan.
+local function AuraUpdateMatters(unit, info)
+    if AurasSecret() then return false end   -- nothing to read; the restriction ending triggers a rescan
+    if not info or info.isFullUpdate then return true end
+    for _, a in ipairs(info.addedAuras or {}) do
+        local id = Clean(a.auraInstanceID)
+        if not id or (C_Secrets and C_Secrets.ShouldUnitAuraInstanceBeSecret
+            and C_Secrets.ShouldUnitAuraInstanceBeSecret(unit, id)) then
+            return true                      -- can't tell what it is: the rescan copes with secret ones
+        end
+        local name = Clean(a.name)
+        if name == nil or (Clean(a.isHelpful) ~= false and IsWatchedName(name)) then return true end
+    end
+    for _, id in ipairs(info.removedAuraInstanceIDs or {}) do
+        if watchedIDs[id] then return true end
+    end
+    for _, id in ipairs(info.updatedAuraInstanceIDs or {}) do
+        if watchedIDs[id] then return true end
+    end
+    return false
+end
+
+f:SetScript("OnEvent", function(_, event, unit, info)
     if event == "PLAYER_LOGIN" then
         BuffWardenDB = BuffWardenDB or {}
         for k, v in pairs(defaults) do
             if BuffWardenDB[k] == nil then BuffWardenDB[k] = (type(v) == "table") and {} or v end
         end
+        BuffWardenDB.askText = nil   -- saved by early dev builds; it's a constant now
         BW.db = BuffWardenDB
         BW:CreateBar()
+        if BW.BuildOptions then BW:BuildOptions() end
         BW:RegisterLauncher()
+        BW:RegisterMinimap()
+        if BW.RegisterWelcome then BW:RegisterWelcome() end
         -- Range and expiry change without events; a slow tick catches them.
-        C_Timer.NewTicker(3, function() if not InCombatLockdown() then BW:Refresh() end end)
+        C_Timer.NewTicker(5, function() if not InCombatLockdown() then BW:Refresh() end end)
         C_Timer.After(2, function() BW:Refresh() end)
-        print(TAG .. " v" .. BW.version .. " loaded. /bw for commands.")
         return
     end
     if not BW.db then return end
     if event == "UNIT_AURA" then
         if unit ~= "player" and not (unit and (unit:find("^party") or unit:find("^raid"))) then return end
-        if InCombatLockdown() then return end
+        if InCombatLockdown() or not AuraUpdateMatters(unit, info) then return end
         BW:ScheduleRefresh()
     elseif event == "SPELLS_CHANGED" or event == "PLAYER_LEVEL_UP" then
         wipe(knownCache)
         BW:ScheduleRefresh()
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        BW:SetStale(true)
     elseif event == "PLAYER_REGEN_ENABLED" then
+        BW:SetStale(false)
         if BW.combatDirty then BW.combatDirty = nil; BW:ApplyCombatSetting() end
         BW:Refresh()
+    elseif event == "ADDON_RESTRICTION_STATE_CHANGED" then
+        -- fired just before a restriction activates and after it lifts: look again once it has settled
+        BW:ScheduleRefresh()
     elseif event == "READY_CHECK" then
         BW:Refresh()
         if BW.db.readyCheck then BW:Report("ready check - ") end
