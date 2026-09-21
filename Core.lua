@@ -17,6 +17,7 @@ local defaults = {
     point        = nil,     -- { point, relPoint, x, y }
     disabled     = {},      -- [buffKey] = true / false (overrides the buff's default)
     readyCheck   = true,    -- print what's missing on a ready check
+    ignoreFar    = true,    -- leave out groupmates too far away to bother about
 }
 
 local ASK_TEXT = "Could I get %s, please? :)"
@@ -63,6 +64,48 @@ local function InRange(spell, unit)
     if UnitIsUnit(unit, "player") then return true end
     local r = C_Spell.IsSpellInRange and C_Spell.IsSpellInRange(spell, unit)
     return r ~= false   -- nil = can't tell, give it the benefit of the doubt
+end
+
+-- How reachable is a groupmate? "range" = inside helpful spell range, "near" = further off but around
+-- (worth showing, they can walk over), "far" = another zone or a long way off (left out entirely).
+-- UnitInRange can be a secret value in instances, so it is cleaned and UnitIsVisible is the fallback.
+local FAR_OUT, FAR_IN, FAR_DELAY = 200, 150, 10   -- yards out, yards back in, seconds before dropping
+local farSince = {}                                -- [name] = when it first looked far
+
+local function Yards(unit)
+    if not (LIB and LIB.Distance and LIB.MyPosition and C_Map and C_Map.GetPlayerMapPosition) then return nil end
+    local myMap, myX, myY = LIB.MyPosition()
+    if not myMap then return nil end
+    local theirMap = C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit(unit)
+    if not theirMap then return nil end
+    local pos = Clean(C_Map.GetPlayerMapPosition(theirMap, unit))
+    if not pos then return nil end
+    local x, y = pos:GetXY()
+    if not x or (x == 0 and y == 0) then return nil end
+    return LIB.Distance(myMap, myX, myY, theirMap, x, y), theirMap ~= myMap
+end
+
+local function Nearness(unit, name)
+    if UnitIsUnit(unit, "player") then return "range" end
+    local inRange = Clean(UnitInRange(unit))
+    if inRange == true then farSince[name] = nil return "range" end
+
+    -- Not in cast range: is it a short walk, or another part of the world?
+    local far
+    local yards, otherMap = Yards(unit)
+    if yards then
+        far = yards > (farSince[name] and FAR_IN or FAR_OUT)
+    elseif otherMap then
+        far = true                       -- position unreadable but a different map: another zone
+    else
+        far = not Clean(UnitIsVisible(unit))
+    end
+
+    if not far then farSince[name] = nil return "near" end
+    -- Hysteresis: only drop someone who has looked far for a while; they come back the moment they're near.
+    local since = farSince[name]
+    if not since then farSince[name] = GetTime() return "near" end
+    return (GetTime() - since >= FAR_DELAY) and "far" or "near"
 end
 
 local function FmtTime(s)
@@ -157,26 +200,35 @@ local function ScanGroup()
 
     local members, providers = {}, {}
     wipe(watchedIDs)
+    local seen = {}
     for _, u in ipairs(units) do
         if UnitExists(u) and UnitIsConnected(u) then
             local _, class = UnitClass(u)
             local isMe = UnitIsUnit(u, "player")
-            if class and not isMe then
+            local name = GetUnitName(u, true) or u
+            seen[name] = true
+            local near = Nearness(u, name)
+            local skip = BW.db.ignoreFar and near == "far"
+            if class and not isMe and not skip then
                 providers[class] = providers[class] or {}
                 table.insert(providers[class], u)
             end
-            if not UnitIsDeadOrGhost(u) and (isMe or UnitIsVisible(u)) then
+            if not skip and not UnitIsDeadOrGhost(u) and (isMe or UnitIsVisible(u)) then
                 local auras, unreadable = ReadAuras(u)
                 members[#members + 1] = {
                     unit = isMe and "player" or u,
-                    name = GetUnitName(u, true) or "?",
+                    name = name,
                     class = class,
                     isMe = isMe,
+                    near = near,               -- "range" or "near"; far ones aren't here at all
                     auras = auras,
                     unreadable = unreadable,   -- buffs unknown: never flag this one as missing anything
                 }
             end
         end
+    end
+    for name in pairs(farSince) do
+        if not seen[name] then farSince[name] = nil end   -- left the group
     end
     return members, providers
 end
@@ -262,7 +314,7 @@ function BW:Compute()
                             if not ok then
                                 missing[#missing + 1] = m
                                 if m.isMe then expiring = left end
-                                if not target and InRange(mine, m.unit) then target = m end
+                                if not target and m.near == "range" and InRange(mine, m.unit) then target = m end
                             end
                         end
                     end
@@ -321,6 +373,17 @@ function BW:Compute()
         end
     end
 
+    -- Nobody in casting range? The icon is dimmed a little: still worth seeing, not actionable yet.
+    for _, e in ipairs(entries) do
+        if e.mode == "cast" and e.targets then
+            e.reachable = false
+            for _, m in ipairs(e.targets) do
+                if m.near == "range" and InRange(e.spell, m.unit) then e.reachable = true end
+            end
+        else
+            e.reachable = true
+        end
+    end
     -- Icons: the exact spell we'd cast, else the buff's own spell texture.
     for _, e in ipairs(entries) do
         e.icon = (e.mode == "cast" and C_Spell.GetSpellTexture(e.spell)) or BW.IconFor(e.def)
@@ -413,9 +476,10 @@ local function ButtonOnEnter(self)
         else
             GameTooltip:AddLine("Missing on " .. #e.targets .. ":", 1, 1, 1)
             for _, m in ipairs(e.targets) do
-                local near = InRange(e.spell, m.unit)
                 local line = (LIB and LIB.ColorName(m.name, m.class) or m.name)
-                if not near then line = line .. " |cff888888(out of range)|r" end
+                if m.near ~= "range" or not InRange(e.spell, m.unit) then
+                    line = line .. " |cff888888(out of range)|r"
+                end
                 GameTooltip:AddLine("  " .. line)
             end
         end
@@ -537,7 +601,8 @@ function BW:SetStale(stale)
     self.stale = stale and true or nil
     for _, b in ipairs(buttons) do
         b.stale:SetShown(stale and b.entry ~= nil and not b.entry.preview)
-        b.icon:SetAlpha(stale and 0.55 or 1)
+        local reachable = not (b.entry and b.entry.reachable == false)
+        b.icon:SetAlpha(stale and 0.55 or (reachable and 1 or 0.6))
         b.border:SetAlpha(stale and 0.5 or 1)
     end
 end
@@ -561,6 +626,7 @@ function BW:Apply(entries)
         b:SetPoint("LEFT", bar, "LEFT", (i - 1) * (SIZE + GAP), 0)
         b.icon:SetTexture(e.icon)
         b.icon:SetDesaturated(e.mode == "ask")
+        b.icon:SetAlpha(e.reachable == false and 0.6 or 1)
         local c = e.expiring and COLORS.expiring or COLORS[e.mode]
         b.border:SetVertexColor(c[1], c[2], c[3])
         b.count:SetText((e.mode == "cast" and #e.targets > 1) and #e.targets or "")

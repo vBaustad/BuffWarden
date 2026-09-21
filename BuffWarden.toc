@@ -3,7 +3,7 @@
 ## Category: YippYapp
 ## Notes: Keeps watch over your buffs: shows what you're missing from yourself or your group, and lets you cast or ask for it in one click. Part of YippYapp - addons for WoW: Forever that work even better together.
 ## Author: vebjorn
-## Version: 0.1.0-beta1
+## Version: 0.1.0-beta2
 ## IconTexture: Interface\AddOns\BuffWarden\Media\icon
 ## SavedVariables: BuffWardenDB
 ## AddonCompartmentFunc: BuffWarden_OnAddonCompartmentClick

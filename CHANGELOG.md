@@ -1,5 +1,11 @@
 # BuffWarden
 
+## 0.1.0-beta2
+
+- Groupmates who are far away (another zone or over 200 yards) no longer count. Those just out of cast range still show, dimmed, so icons don't flicker. Turn it off with "Ignore groupmates who are far away".
+- In combat the bar keeps its pre-pull state with a small clock and updates when combat ends; buffs can't be read in combat on Forever.
+- No more errors from reading buffs while the game keeps them hidden.
+
 ## 0.1.0-beta1
 
 First beta, built for WoW: Forever.

@@ -98,6 +98,12 @@ function BW:BuildOptions()
         function() return db.hideInCombat end,
         function(v) db.hideInCombat = v; BW:ApplyCombatSetting() end)
 
+    L.Check("Ignore groupmates who are far away",
+        "Someone in another zone, or a long way off, isn't counted as missing a buff. Groupmates just "
+        .. "out of casting range are still shown, marked \"out of range\".",
+        function() return db.ignoreFar end,
+        function(v) db.ignoreFar = v; BW:Refresh() end)
+
     -- Which buffs --------------------------------------------------------------
     L.Header("Which buffs")
     L.Note("Untick a buff to stop watching it. Your own class's buffs show as gold (you cast them); group "

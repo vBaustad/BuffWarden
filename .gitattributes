@@ -1,2 +1,2 @@
 *.tga binary
-*.toc text eol=crlf
+*.toc -text
