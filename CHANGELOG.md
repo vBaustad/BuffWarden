@@ -1,5 +1,12 @@
 # BuffWarden
 
+## 0.1.0-beta3
+
+- Warriors: Battle Shout reminder. It's a short buff that costs rage, so it only reminds out of combat, in a group, while you have the rage to shout (usually right after a fight), and warns when a tenth of its duration is left (read from the buff itself, so about 18 seconds for a 3-minute shout). Untick "Battle Shout" in the settings to turn it off.
+- "Running out soon" (orange) now warns at 5 minutes instead of 2, so there's time to ask for a new buff. Short buffs warn at a tenth of their duration (at least a minute), so a 10-minute self-buff isn't orange half the time.
+- Orange icons show the time left, and the tooltip says e.g. "Arcane Intellect runs out in 4m 12s".
+- New setting under Bar: "Warn when a buff has less than [5] min left". If you never changed it, you get the new 5-minute default.
+
 ## 0.1.0-beta2
 
 - Groupmates who are far away (another zone or over 200 yards) no longer count. Those just out of cast range still show, dimmed, so icons don't flicker. Turn it off with "Ignore groupmates who are far away".

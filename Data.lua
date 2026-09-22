@@ -15,6 +15,12 @@ local ADDON, BW = ...
 --   minLevel  level a groupmate needs before we suggest asking them for it (their spellbooks can't be read)
 --   talent    a talent spell: only suggest asking when someone in the group already carries the buff,
 --             since that proves one of them has the talent
+--   short     a short, cheap buff you recast often (Battle Shout). Its own rules, all optional:
+--               warnPct = share of the aura's own duration (read from the aura) that counts as running
+--               out, instead of the long-buff setting; warnMin = never less than this many seconds,
+--               power/cost = only remind when you have this much of that power to cast it,
+--               groupOnly = only remind while in a group
+--   note      settings tooltip text, when the default "buff for you / for the group" isn't enough
 --   default   false = off until turned on in the settings (or /bwarden toggle <key>)
 
 BW.MANA_CLASSES = {
@@ -94,4 +100,15 @@ BW.BUFFS = {
     { key = "omen", spellID = 16864, class = "DRUID", scope = "self",
       names = { "Omen of Clarity" }, cast = { "Omen of Clarity" },
       icon = "Interface\\Icons\\Spell_Nature_CrystalBall" },
+
+    -- Short buffs -------------------------------------------------------------
+    -- Battle Shout is short (its duration is read from the aura) and costs rage, which drains to nothing
+    -- out of combat. Buffs can't be
+    -- read in combat on Forever, so this only reminds out of combat, in a group, while you still have the
+    -- rage to shout (typically right after a fight).
+    { key = "battleshout", spellID = 6673, class = "WARRIOR", scope = "self",
+      names = { "Battle Shout" }, cast = { "Battle Shout" },
+      short = { warnPct = 0.1, warnMin = 10, power = "RAGE", cost = 10, groupOnly = true },
+      note = "Only in a group and when you have the rage for it; warns when a tenth of it is left.",
+      icon = "Interface\\Icons\\Ability_Warrior_BattleShout" },
 }

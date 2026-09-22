@@ -20,7 +20,8 @@ it. When someone else has it, a click whispers them to ask. When nothing is miss
 - **Grey icon: a groupmate has it.** A click whispers them: *"Could I get Arcane Intellect, please? :)"*.
   BuffWarden only suggests groupmates who are high enough level to have the spell, and only asks for a talent
   buff like Divine Spirit once someone in the group is seen carrying it.
-- **Orange icon: running out soon.** Under 2 minutes left by default.
+- **Orange icon: running out soon.** Under 5 minutes left by default (change it in the settings); short
+  buffs warn at a tenth of their duration. The icon shows the time left.
 - **Blessings.** You should carry one Blessing from each paladin in the group. As a paladin, BuffWarden picks
   Kings if you have it, otherwise Wisdom for mana users and Might for everyone else.
 - **Ready check.** Optionally lists what you can cast and what you're missing in chat.

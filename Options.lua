@@ -59,6 +59,30 @@ local function Layout(parent)
         return cb
     end
 
+    -- "label [-] value [+]" with a note under it; value shown by fmt(get()).
+    function L.Stepper(label, note, get, set, step, lo, hi, fmt)
+        local l = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+        l:SetPoint("TOPLEFT", PAD, L.y - 5)
+        l:SetText(label)
+        local minus = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+        minus:SetSize(24, 22)
+        minus:SetPoint("LEFT", l, "RIGHT", 10, 0)
+        minus:SetText("-")
+        local value = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        value:SetPoint("LEFT", minus, "RIGHT", 8, 0)
+        value:SetWidth(60)
+        local plus = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+        plus:SetSize(24, 22)
+        plus:SetPoint("LEFT", value, "RIGHT", 8, 0)
+        plus:SetText("+")
+        local function show() value:SetText(fmt(get())) end
+        minus:SetScript("OnClick", function() set(math.max(lo, get() - step)); show() end)
+        plus:SetScript("OnClick", function() set(math.min(hi, get() + step)); show() end)
+        refreshers[#refreshers + 1] = show
+        L.Gap(28)
+        if note then L.Note(note, 4) end
+    end
+
     return L
 end
 
@@ -98,6 +122,12 @@ function BW:BuildOptions()
         function() return db.hideInCombat end,
         function(v) db.hideInCombat = v; BW:ApplyCombatSetting() end)
 
+    L.Stepper("Warn when a buff has less than", "The icon turns orange and shows the time left. Short "
+        .. "buffs warn at a tenth of their duration instead (at least a minute).",
+        function() return math.floor(db.threshold / 60 + 0.5) end,
+        function(v) db.threshold = v * 60; BW:Refresh() end,
+        1, 1, 15, function(v) return v .. " min left" end)
+
     L.Check("Ignore groupmates who are far away",
         "Someone in another zone, or a long way off, isn't counted as missing a buff. Groupmates just "
         .. "out of casting range are still shown, marked \"out of range\".",
@@ -107,8 +137,7 @@ function BW:BuildOptions()
     -- Which buffs --------------------------------------------------------------
     L.Header("Which buffs")
     L.Note("Untick a buff to stop watching it. Your own class's buffs show as gold (you cast them); group "
-        .. "buffs from other classes show as grey (you ask for them). A buff with less than "
-        .. math.floor(db.threshold / 60 + 0.5) .. " minutes left counts as missing (/bwarden time <seconds>).")
+        .. "buffs from other classes show as grey (you ask for them).")
     L.Gap(2)
     local rowY = L.y
     for i, def in ipairs(BW.BUFFS) do
@@ -122,7 +151,7 @@ function BW:BuildOptions()
             function() return BW.BuffEnabled(def) end,
             function(v) db.disabled[def.key] = not v; BW:Refresh() end,
             PAD + col * COL_W,
-            def.scope == "self" and "A buff you put on yourself." or "A buff for the whole group.")
+            def.note or (def.scope == "self" and "A buff you put on yourself." or "A buff for the whole group."))
     end
     L.y = rowY - math.ceil(#BW.BUFFS / 2) * 26
 
@@ -150,11 +179,9 @@ function BW:BuildOptions()
             welcome:SetPoint("TOPLEFT", PAD - 4, L.y)
         end
         welcome:SetText("Welcome / what's new")
-        welcome:SetScript("OnClick", function()
-            -- The Options panel is protected in combat; leave it open then.
-            if SettingsPanel and SettingsPanel:IsShown() and not InCombatLockdown() then SettingsPanel:Close() end
-            LIB.OpenWelcome("BuffWarden")
-        end)
+        -- Only opens the welcome window (LibForever puts it above the Settings panel). Never close Settings
+        -- from here: SettingsPanel:Close() goes back to the game menu, which calls protected functions.
+        welcome:SetScript("OnClick", function() LIB.OpenWelcome("BuffWarden") end)
     end
     L.Gap(block and block:GetHeight() or 30)
     local footer = f:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")

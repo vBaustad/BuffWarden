@@ -10,7 +10,7 @@ local TAG = "|cff66ccffBuffWarden|r"
 -- Saved variables
 -- ---------------------------------------------------------------------------
 local defaults = {
-    threshold    = 120,     -- a buff with fewer seconds left than this counts as missing
+    threshold    = 300,     -- warn (orange) when a buff has fewer seconds left than this
     hideInCombat = true,    -- the bar is secure; this hides it through a state driver
     locked       = true,
     scale        = 1,
@@ -113,6 +113,26 @@ local function FmtTime(s)
     return ("%ds"):format(math.floor(s))
 end
 
+local function FmtLong(s)
+    s = math.floor(s)
+    if s >= 60 then return ("%dm %02ds"):format(math.floor(s / 60), s % 60) end
+    return ("%ds"):format(s)
+end
+
+-- When does a buff count as running out? The setting (5 minutes by default), but for a short buff at
+-- most a tenth of its duration (never under a minute), so a 10-minute self-buff isn't orange half the time.
+local function Expiring(a, short)
+    if a.left == math.huge then return false end
+    if short then
+        -- short buffs scale from their own duration (e.g. 3-minute Battle Shout -> 18 s); unknown -> warnMin
+        local warn = (a.dur and a.dur > 0) and a.dur * (short.warnPct or 0.1) or 0
+        return a.left <= math.max(short.warnMin or 10, warn)
+    end
+    local warn = BW.db.threshold
+    if a.dur and a.dur > 0 then warn = math.min(warn, math.max(60, a.dur * 0.1)) end
+    return a.left <= warn
+end
+
 -- Every aura name BuffWarden cares about, and the instance IDs of those auras as last seen, so an
 -- aura event about anything else (debuffs, procs, trinkets) can be ignored without a rescan.
 local watchedNames
@@ -161,6 +181,7 @@ local function ReadAuras(unit)
         else
             local exp = Clean(a.expirationTime) or 0
             out[name] = {
+                dur = Clean(a.duration),
                 left = (exp > 0) and (exp - now) or math.huge,
                 source = Clean(a.sourceUnit),
                 icon = Clean(a.icon),
@@ -173,12 +194,12 @@ local function ReadAuras(unit)
 end
 
 -- The first matching aura that still has enough time left. Returns found, secondsLeftIfExpiring.
-local function HasBuff(auras, names)
+local function HasBuff(auras, names, short)
     local best
     for _, n in ipairs(names) do
         local a = auras[n]
         if a then
-            if a.left > BW.db.threshold then return true end
+            if not Expiring(a, short) then return true end
             best = math.max(best or 0, a.left)
         end
     end
@@ -254,7 +275,7 @@ local function IsBlessedBy(m, byMe)
     if m.unreadable then return true end
     for _, n in ipairs(BW.BLESSING_NAMES) do
         local a = m.auras[n]
-        if a and a.left > BW.db.threshold then
+        if a and not Expiring(a) then
             if not a.source then return true end
             local mine = UnitIsUnit(a.source, "player")
             if byMe == mine then return true end
@@ -282,6 +303,19 @@ local function Providers(def, list, members)
     return #out > 0 and out or nil
 end
 
+-- Short buffs (Battle Shout) only when their own conditions hold: in a group, and enough of the power
+-- they cost right now. Long buffs always pass.
+local function ShortBuffAllowed(def)
+    local sb = def.short
+    if not sb then return true end
+    if sb.groupOnly and not IsInGroup() then return false end
+    if sb.power then
+        local have = Clean(UnitPower("player", Enum.PowerType[sb.power == "RAGE" and "Rage" or sb.power]))
+        if not have or have < (sb.cost or 0) then return false end
+    end
+    return true
+end
+
 -- Builds the list of things to show. Each entry:
 --   { key, def, mode = "cast"|"ask", spell, icon, targets = {member...}, target, providers = {unit...}, expiring }
 function BW:Compute()
@@ -297,8 +331,8 @@ function BW:Compute()
             local mine = def.class == myClass and FirstKnown(def.cast)
 
             if def.scope == "self" then
-                if mine and not me.unreadable then
-                    local ok, left = HasBuff(me.auras, def.names)
+                if mine and not me.unreadable and ShortBuffAllowed(def) then
+                    local ok, left = HasBuff(me.auras, def.names, def.short)
                     if not ok then
                         entries[#entries + 1] = { key = def.key, def = def, mode = "cast", spell = mine,
                             targets = { me }, target = me, expiring = left }
@@ -353,7 +387,7 @@ function BW:Compute()
                     local have, from = 0, {}
                     for _, n in ipairs(BW.BLESSING_NAMES) do
                         local a = me.auras[n]
-                        if a and a.left > BW.db.threshold and not (a.source and UnitIsUnit(a.source, "player")) then
+                        if a and not Expiring(a) and not (a.source and UnitIsUnit(a.source, "player")) then
                             have = have + 1
                             if a.source then from[#from + 1] = a.source end
                         end
@@ -468,7 +502,7 @@ local function ButtonOnEnter(self)
         return
     end
     if e.expiring then
-        GameTooltip:AddLine("Running out on you: " .. FmtTime(e.expiring) .. " left", 1, 0.6, 0.2)
+        GameTooltip:AddLine(e.spell .. " runs out in " .. FmtLong(e.expiring), 1, 0.6, 0.2)
     end
     if e.mode == "cast" then
         if #e.targets == 1 and e.targets[1].isMe then
@@ -684,9 +718,9 @@ function BW:Refresh()
     self:Apply(entries)
 end
 
-function BW:ScheduleRefresh()
+function BW:ScheduleRefresh(delay)
     if self.timer then return end
-    self.timer = C_Timer.NewTimer(1, function()
+    self.timer = C_Timer.NewTimer(delay or 1, function()
         BW.timer = nil
         BW:Refresh()
     end)
@@ -796,8 +830,8 @@ SlashCmdList.BUFFWARDEN = function(msg)
         db.scale = math.min(2, math.max(0.5, tonumber(arg)))
         bar:SetScale(db.scale)
     elseif cmd == "time" and tonumber(arg) then
-        db.threshold = tonumber(arg)
-        print(TAG .. ": buffs with less than " .. db.threshold .. "s left count as missing.")
+        db.threshold = math.max(30, tonumber(arg))
+        print(TAG .. ": warns when a buff has less than " .. FmtLong(db.threshold) .. " left.")
     elseif cmd == "combat" then
         db.hideInCombat = not db.hideInCombat
         BW:ApplyCombatSetting()
@@ -841,7 +875,7 @@ SlashCmdList.BUFFWARDEN = function(msg)
         print(TAG .. " v" .. BW.version .. " commands:")
         print("  /bwarden  - open the settings")
         print("  /bwarden unlock | lock | reset | scale <0.5-2>")
-        print("  /bwarden time <seconds>  - refresh buffs with less than this left (now " .. db.threshold .. ")")
+        print("  /bwarden time <seconds>  - warn when a buff has less than this left (now " .. db.threshold .. ")")
         print("  /bwarden combat  - toggle hiding in combat")
         print("  /bwarden list | toggle <key>  - choose which buffs to watch")
         print("  /bwarden status | welcome")
@@ -865,6 +899,7 @@ f:RegisterEvent("PLAYER_REGEN_DISABLED")
 f:RegisterEvent("SPELLS_CHANGED")
 f:RegisterEvent("PLAYER_LEVEL_UP")
 f:RegisterEvent("READY_CHECK")
+f:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
 f:RegisterEvent("ADDON_RESTRICTION_STATE_CHANGED")
 -- Is this aura update about a buff we watch? Full updates and unreadable ones count; otherwise only
 -- added watched buffs, and removed or changed auras we saw as watched on the last scan.
@@ -896,6 +931,11 @@ f:SetScript("OnEvent", function(_, event, unit, info)
             if BuffWardenDB[k] == nil then BuffWardenDB[k] = (type(v) == "table") and {} or v end
         end
         BuffWardenDB.askText = nil   -- saved by early dev builds; it's a constant now
+        if not BuffWardenDB.warnV2 then
+            -- 120 s was the old default, not a choice: move it to the new one
+            if BuffWardenDB.threshold == 120 then BuffWardenDB.threshold = defaults.threshold end
+            BuffWardenDB.warnV2 = true
+        end
         BW.db = BuffWardenDB
         BW:CreateBar()
         if BW.BuildOptions then BW:BuildOptions() end
@@ -911,7 +951,10 @@ f:SetScript("OnEvent", function(_, event, unit, info)
     if event == "UNIT_AURA" then
         if unit ~= "player" and not (unit and (unit:find("^party") or unit:find("^raid"))) then return end
         if InCombatLockdown() or not AuraUpdateMatters(unit, info) then return end
-        BW:ScheduleRefresh()
+        BW:ScheduleRefresh(unit == "player" and 0.2 or 1)   -- your own cast: gone almost at once
+    elseif event == "UNIT_POWER_UPDATE" then
+        -- rage decides whether a short buff like Battle Shout is worth reminding about
+        if unit == "player" and info == "RAGE" and not InCombatLockdown() then BW:ScheduleRefresh() end
     elseif event == "SPELLS_CHANGED" or event == "PLAYER_LEVEL_UP" then
         wipe(knownCache)
         BW:ScheduleRefresh()
