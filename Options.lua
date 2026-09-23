@@ -1,5 +1,5 @@
--- BuffWarden settings page (Options > AddOns > BuffWarden). The minimap and launcher buttons are set
--- on the shared YippYapp page (LibForever), linked at the bottom.
+-- BuffWarden's settings page. LibForever hosts it in the shared YippYapp window (which also holds the
+-- minimap, launcher and other shared settings), gives it the window's width and scrolls it for us.
 local ADDON, BW = ...
 
 local LIB = LibStub and LibStub("LibForever-1.0", true)
@@ -7,7 +7,8 @@ local TAG = "|cff66ccffBuffWarden|r"
 local refreshers = {}
 
 local PAD = 8          -- left edge inside the page
-local COL_W = 300      -- width of one column in the buff grid
+local CONTENT_W = 548  -- the YippYapp window's page width, minus padding and its scrollbar
+local COL_W = 270      -- width of one column in the buff grid
 
 -- Everything is laid out top to bottom with a running y, so sections never overlap or leave holes.
 local function Layout(parent)
@@ -26,7 +27,7 @@ local function Layout(parent)
     function L.Note(text, indent)
         local n = parent:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
         n:SetPoint("TOPLEFT", PAD + (indent or 0), L.y)
-        n:SetWidth(600 - (indent or 0))
+        n:SetWidth(CONTENT_W - (indent or 0))
         n:SetJustifyH("LEFT")
         n:SetText(text)
         L.Gap(n:GetStringHeight() + 6)
@@ -70,7 +71,7 @@ local function Layout(parent)
         minus:SetText("-")
         local value = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
         value:SetPoint("LEFT", minus, "RIGHT", 8, 0)
-        value:SetWidth(60)
+        value:SetWidth(90)
         local plus = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
         plus:SetSize(24, 22)
         plus:SetPoint("LEFT", value, "RIGHT", 8, 0)
@@ -93,9 +94,12 @@ function BW:BuildOptions()
     self.panel = panel
     local db = self.db
 
+    -- Content sits in a frame that follows the page width; the lib scrolls the page when we tell it how
+    -- tall we are (the 4th argument to RegisterOptionsPage).
     local f = CreateFrame("Frame", nil, panel)
-    f:SetPoint("TOPLEFT", 10, -10)
-    f:SetPoint("BOTTOMRIGHT", -10, 10)
+    f:SetPoint("TOPLEFT", 6, -6)
+    f:SetPoint("TOPRIGHT", -6, -6)
+    f:SetHeight(10)
     local L = Layout(f)
 
     -- Title ------------------------------------------------------------------
@@ -105,7 +109,7 @@ function BW:BuildOptions()
     L.Gap(26)
     local sub = f:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     sub:SetPoint("TOPLEFT", PAD, L.y)
-    sub:SetWidth(600)
+    sub:SetWidth(CONTENT_W)
     sub:SetJustifyH("LEFT")
     sub:SetText("Shows the buffs you and your group are missing. Click an icon to cast it, or to ask the "
         .. "groupmate who has it.")
@@ -162,40 +166,32 @@ function BW:BuildOptions()
         function() return db.readyCheck end,
         function(v) db.readyCheck = v end)
 
-    -- Minimap & launcher (link to the shared YippYapp page), welcome, footer ----------
-    -- The link block is one line of text with its button under it; "Welcome" sits beside that button.
+    -- Footer -------------------------------------------------------------------
     L.Gap(12)
-    local block
-    if LIB and LIB.LauncherOptions then
-        block = LIB.LauncherOptions(f, "BuffWarden")
-        block:SetPoint("TOPLEFT", PAD - 4, L.y)
-    end
-    if LIB and LIB.OpenWelcome then
-        local welcome = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        welcome:SetSize(170, 22)
-        if block and block.button then
-            welcome:SetPoint("LEFT", block.button, "RIGHT", 12, 0)
-        else
-            welcome:SetPoint("TOPLEFT", PAD - 4, L.y)
-        end
-        welcome:SetText("Welcome / what's new")
-        -- Only opens the welcome window (LibForever puts it above the Settings panel). Never close Settings
-        -- from here: SettingsPanel:Close() goes back to the game menu, which calls protected functions.
-        welcome:SetScript("OnClick", function() LIB.OpenWelcome("BuffWarden") end)
-    end
-    L.Gap(block and block:GetHeight() or 30)
     local footer = f:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
     footer:SetPoint("TOPLEFT", PAD, L.y)
-    footer:SetWidth(600)
+    footer:SetWidth(CONTENT_W)
     footer:SetJustifyH("LEFT")
     footer:SetText("|cffffd100/bwarden|r opens this page.  |cffffd100/bwarden help|r lists the commands.\n"
         .. "Part of YippYapp - addons for WoW: Forever that work even better together.")
+    L.Gap(footer:GetStringHeight() + 12)
+    local height = -L.y
+    f:SetHeight(height)
+    panel:SetHeight(height)
 
-    panel:SetScript("OnShow", function() for _, r in ipairs(refreshers) do r() end end)
+    -- Fill in the current values whenever the page is shown. The panel itself may already count as
+    -- "shown" when Settings adopts it (so its OnShow never fires): refresh from the scroll child's OnShow,
+    -- from Settings' own OnRefresh, and once now.
+    local function Refresh() for _, r in ipairs(refreshers) do r() end end
+    panel:HookScript("OnShow", Refresh)
+    f:SetScript("OnShow", Refresh)
+    panel.OnRefresh = Refresh
+    Refresh()
 
-    -- A subcategory under YippYapp (LibForever); an older lib without it gets a page of its own.
+    -- Hosted in the YippYapp window (LibForever); an older lib without it gets a Blizzard page instead.
     if LIB and LIB.RegisterOptionsPage then
-        self.category = LIB.RegisterOptionsPage("BuffWarden", panel)
+        self.category = LIB.RegisterOptionsPage("BuffWarden", panel, "BuffWarden", height)
+        self.hosted = self.category ~= nil
     end
     if not self.category and Settings and Settings.RegisterCanvasLayoutCategory then
         local category = Settings.RegisterCanvasLayoutCategory(panel, "BuffWarden")
@@ -206,11 +202,24 @@ end
 
 function BW:OpenOptions()
     if not self.category then print(TAG .. ": the settings page isn't available.") return end
-    -- Opening the settings panel is protected: blocked in combat.
+    -- Opening a window is protected in combat (Blizzard's panel goes through the game menu).
     if InCombatLockdown() then
         print(TAG .. ": settings can't be opened during combat.")
         return
     end
-    local id = self.category.GetID and self.category:GetID() or self.category.ID
-    Settings.OpenToCategory(id)
+    -- Our own window first: a hosted page has no Blizzard category ID to open. Every path that fails
+    -- says so, so a click never just does nothing.
+    local open = LIB and (LIB.OpenAddonSettings or LIB.OpenYippYappSettings)
+    if self.hosted and open then
+        local ok, err = pcall(open, "BuffWarden")
+        if ok then return end
+        print(TAG .. ": couldn't open the YippYapp settings (" .. tostring(err) .. ").")
+        return
+    end
+    local id = not self.hosted and self.category.GetID and self.category:GetID() or self.category.ID
+    if id and Settings and Settings.OpenToCategory then
+        Settings.OpenToCategory(id)
+        return
+    end
+    print(TAG .. ": couldn't open the settings - type /bwarden help for the commands.")
 end

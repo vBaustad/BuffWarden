@@ -18,9 +18,11 @@ local defaults = {
     disabled     = {},      -- [buffKey] = true / false (overrides the buff's default)
     readyCheck   = true,    -- print what's missing on a ready check
     ignoreFar    = true,    -- leave out groupmates too far away to bother about
+    placed       = false,   -- has the bar been dragged into place? (the welcome card asks until it has)
 }
 
 local ASK_TEXT = "Could I get %s, please? :)"
+local ASK_COOLDOWN = 30   -- seconds before the same groupmate can be asked for the same buff again
 
 local function BuffEnabled(def)
     local v = BW.db.disabled[def.key]
@@ -209,8 +211,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Group scan
 -- ---------------------------------------------------------------------------
--- Everyone we can see: { unit, name, class, auras }. Plus the online providers per class.
-local function ScanGroup()
+local function GroupUnits()
     local units = {}
     if IsInRaid() then
         for i = 1, GetNumGroupMembers() do units[#units + 1] = "raid" .. i end
@@ -218,11 +219,32 @@ local function ScanGroup()
         units[1] = "player"
         for i = 1, GetNumSubgroupMembers() do units[#units + 1] = "party" .. i end
     end
+    return units
+end
 
+-- Do we need anyone else's buffs, or only our own? Only two things look at a groupmate's auras: a group
+-- buff (or blessing) WE can cast, and a talent buff we might ask for, which we only offer once someone
+-- is seen carrying it. A rogue in a 40-man raid therefore reads one unit instead of forty.
+local function NeedGroupAuras(providers, myClass)
+    for _, def in ipairs(BW.BUFFS) do
+        if BuffEnabled(def) then
+            if (def.scope == "group" or def.scope == "blessing")
+                and def.class == myClass and FirstKnown(def.cast) then return true end
+            if def.talent and providers[def.class] then return true end
+        end
+    end
+    return false
+end
+
+-- Everyone we can see: { unit, name, class, near, auras }. Plus the online providers per class.
+local function ScanGroup()
+    local _, myClass = UnitClass("player")
     local members, providers = {}, {}
     wipe(watchedIDs)
     local seen = {}
-    for _, u in ipairs(units) do
+
+    -- First pass: who is here, which class, and how far away. No aura reads yet.
+    for _, u in ipairs(GroupUnits()) do
         if UnitExists(u) and UnitIsConnected(u) then
             local _, class = UnitClass(u)
             local isMe = UnitIsUnit(u, "player")
@@ -235,21 +257,29 @@ local function ScanGroup()
                 table.insert(providers[class], u)
             end
             if not skip and not UnitIsDeadOrGhost(u) and (isMe or UnitIsVisible(u)) then
-                local auras, unreadable = ReadAuras(u)
                 members[#members + 1] = {
                     unit = isMe and "player" or u,
                     name = name,
                     class = class,
                     isMe = isMe,
-                    near = near,               -- "range" or "near"; far ones aren't here at all
-                    auras = auras,
-                    unreadable = unreadable,   -- buffs unknown: never flag this one as missing anything
+                    near = near,   -- "range" or "near"; far ones aren't here at all
                 }
             end
         end
     end
     for name in pairs(farSince) do
         if not seen[name] then farSince[name] = nil end   -- left the group
+    end
+
+    -- Second pass: auras, for ourselves always and for the others only when they matter.
+    local others = NeedGroupAuras(providers, myClass)
+    for _, m in ipairs(members) do
+        if m.isMe or others then
+            m.auras, m.unreadable = ReadAuras(m.unit)
+        else
+            -- not read, so never flagged as missing anything
+            m.auras, m.unreadable = {}, true
+        end
     end
     return members, providers
 end
@@ -269,19 +299,37 @@ local function BlessingFor(m)
     return FirstKnown({ "Blessing of Wisdom", "Blessing of Salvation", "Blessing of Light" })
 end
 
--- Does this member carry a blessing from us (byMe) or from another paladin? A blessing whose caster
--- can't be read counts either way: better to miss a rebuff than to nag about one that's there.
-local function IsBlessedBy(m, byMe)
+-- Blessings stack one per paladin, so another paladin's Kings never fills OUR slot on a target. This
+-- asks only about our own blessing: is a blessing we cast on them, or - when the game won't say who cast
+-- it - is the very spell we would cast already there? (Only then do we leave it alone; anything else is
+-- someone else's blessing and ours is still missing.)
+local function HasMyBlessing(m, mySpell)
     if m.unreadable then return true end
     for _, n in ipairs(BW.BLESSING_NAMES) do
         local a = m.auras[n]
         if a and not Expiring(a) then
-            if not a.source then return true end
-            local mine = UnitIsUnit(a.source, "player")
-            if byMe == mine then return true end
+            if a.source and UnitIsUnit(a.source, "player") then return true end
+            if not a.source and n == mySpell then return true end
         end
     end
     return false
+end
+
+-- A blessing on us from someone else: another paladin's, or one of unknown caster that isn't the spell
+-- we would cast ourselves. Returns count and the callers we could identify.
+local function BlessingsFromOthers(m, mySpell)
+    local count, from = 0, {}
+    for _, n in ipairs(BW.BLESSING_NAMES) do
+        local a = m.auras[n]
+        if a and not Expiring(a) then
+            local mine = (a.source and UnitIsUnit(a.source, "player")) or (not a.source and n == mySpell)
+            if not mine then
+                count = count + 1
+                if a.source then from[#from + 1] = a.source end
+            end
+        end
+    end
+    return count, from
 end
 
 -- Groupmates of the buff's class who could plausibly cast it: high enough level, and for a talent,
@@ -370,7 +418,7 @@ function BW:Compute()
                 if def.class == myClass and FirstKnown(def.cast) then
                     local missing, target = {}, nil
                     for _, m in ipairs(members) do
-                        if not IsBlessedBy(m, true) then
+                        if not HasMyBlessing(m, BlessingFor(m)) then
                             missing[#missing + 1] = m
                             if not target and InRange(BlessingFor(m) or "", m.unit) then target = m end
                         end
@@ -384,14 +432,7 @@ function BW:Compute()
                 -- From the other paladins: you should carry one blessing from each of them.
                 local pals = Providers(def, providers.PALADIN, members)
                 if pals and not me.unreadable then
-                    local have, from = 0, {}
-                    for _, n in ipairs(BW.BLESSING_NAMES) do
-                        local a = me.auras[n]
-                        if a and not Expiring(a) and not (a.source and UnitIsUnit(a.source, "player")) then
-                            have = have + 1
-                            if a.source then from[#from + 1] = a.source end
-                        end
-                    end
+                    local have, from = BlessingsFromOthers(me, myClass == "PALADIN" and BlessingFor(me) or nil)
                     if have < #pals and #from == have then
                         local ask = {}
                         for _, p in ipairs(pals) do
@@ -470,6 +511,30 @@ end
 -- ---------------------------------------------------------------------------
 -- The bar
 -- ---------------------------------------------------------------------------
+-- Asking is a plain whisper we build ourselves: our own sentence, the spell name from our own data and
+-- the groupmate's name from the client. Nothing here can be triggered from outside the game, and the
+-- same person can't be asked for the same buff more often than ASK_COOLDOWN.
+local askedAt = {}
+
+local function AskFor(unit, spell)
+    if not (unit and spell) or not UnitExists(unit) then return end
+    local name = GetUnitName(unit, true)
+    if not name or name == "" then return end
+    local key = name .. "|" .. spell
+    local now = GetTime()
+    if askedAt[key] and now - askedAt[key] < ASK_COOLDOWN then
+        local who = (LIB and LIB.ShortName and LIB.ShortName(name)) or name
+        print(TAG .. ": already asked " .. who .. " for " .. spell .. " - give them a moment.")
+        return
+    end
+    if C_ChatInfo and C_ChatInfo.InChatMessagingLockdown and C_ChatInfo.InChatMessagingLockdown() then
+        print(TAG .. ": can't whisper right now (the game is holding chat back).")
+        return
+    end
+    askedAt[key] = now
+    -- audit: user-initiated (only the ask button's OnClick calls this) and rate-limited by askedAt
+    SendChatMessage(ASK_TEXT:format(spell), "WHISPER", nil, name)
+end
 local SIZE, GAP = 36, 4
 local holder, bar, handle
 local buttons = {}
@@ -477,8 +542,9 @@ local buttons = {}
 -- Always pinned by its top-left corner, so the first icon stays put and the row grows to the right.
 -- (StopMovingOrSizing re-anchors to whatever point is nearest, often CENTER or RIGHT; a bar anchored
 -- like that shrinks toward the middle or the right when fewer icons are shown.)
-local function SavePosition()
+local function SavePosition(byUser)
     if InCombatLockdown() then return end
+    if byUser then BW.db.placed = true end
     local l, t = bar:GetLeft(), bar:GetTop()
     if not (l and t) then return end
     bar:ClearAllPoints()
@@ -560,12 +626,20 @@ local function MakeButton(i)
     b.stale:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     b.stale:Hide()
 
+    -- HookScript, never SetScript: SecureActionButtonTemplate installs its own OnClick, and replacing
+    -- it stops every cast. The hook runs after it, and only asks when this button is an "ask" (a cast
+    -- button has no self.ask and its secure attributes did the work).
+    b:HookScript("OnClick", function(self, _, down)
+        if down then return end          -- the buttons take both down and up: ask once, on the up
+        local ask = self.ask
+        if ask then AskFor(ask.unit, ask.spell) end
+    end)
     b:SetScript("OnEnter", ButtonOnEnter)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
     -- While unlocked the whole bar can be dragged by any of its (preview) buttons.
     b:RegisterForDrag("LeftButton")
     b:SetScript("OnDragStart", function() BW:StartDrag() end)
-    b:SetScript("OnDragStop", function() bar:StopMovingOrSizing(); SavePosition() end)
+    b:SetScript("OnDragStop", function() bar:StopMovingOrSizing(); SavePosition(true) end)
     buttons[i] = b
     return b
 end
@@ -604,7 +678,7 @@ function BW:CreateBar()
     -- The gaps between icons drag too.
     bar:RegisterForDrag("LeftButton")
     bar:SetScript("OnDragStart", function() BW:StartDrag() end)
-    bar:SetScript("OnDragStop", function() bar:StopMovingOrSizing(); SavePosition() end)
+    bar:SetScript("OnDragStop", function() bar:StopMovingOrSizing(); SavePosition(true) end)
 
     self:ApplyCombatSetting()
 end
@@ -636,7 +710,8 @@ function BW:SetStale(stale)
     for _, b in ipairs(buttons) do
         b.stale:SetShown(stale and b.entry ~= nil and not b.entry.preview)
         local reachable = not (b.entry and b.entry.reachable == false)
-        b.icon:SetAlpha(stale and 0.55 or (reachable and 1 or 0.6))
+        b.shownAlpha = stale and 0.55 or (reachable and 1 or 0.6)
+        b.icon:SetAlpha(b.shownAlpha)
         b.border:SetAlpha(stale and 0.5 or 1)
     end
 end
@@ -658,31 +733,37 @@ function BW:Apply(entries)
         b.entry = e
         b:ClearAllPoints()
         b:SetPoint("LEFT", bar, "LEFT", (i - 1) * (SIZE + GAP), 0)
-        b.icon:SetTexture(e.icon)
-        b.icon:SetDesaturated(e.mode == "ask")
-        b.icon:SetAlpha(e.reachable == false and 0.6 or 1)
+        -- Only push what actually differs: a refresh every few seconds otherwise churns textures
+        -- and font strings for nothing.
+        if b.shownIcon ~= e.icon then b.shownIcon = e.icon; b.icon:SetTexture(e.icon) end
+        local desat = e.mode == "ask"
+        if b.shownDesat ~= desat then b.shownDesat = desat; b.icon:SetDesaturated(desat) end
+        local alpha = (e.reachable == false) and 0.6 or 1
+        if b.shownAlpha ~= alpha then b.shownAlpha = alpha; b.icon:SetAlpha(alpha) end
         local c = e.expiring and COLORS.expiring or COLORS[e.mode]
-        b.border:SetVertexColor(c[1], c[2], c[3])
-        b.count:SetText((e.mode == "cast" and #e.targets > 1) and #e.targets or "")
-        b.timer:SetText(e.expiring and FmtTime(e.expiring) or "")
+        if b.shownColor ~= c then b.shownColor = c; b.border:SetVertexColor(c[1], c[2], c[3]) end
+        local count = (e.mode == "cast" and #e.targets > 1) and tostring(#e.targets) or ""
+        if b.shownCount ~= count then b.shownCount = count; b.count:SetText(count) end
+        local timer = e.expiring and FmtTime(e.expiring) or ""
+        if b.shownTimer ~= timer then b.shownTimer = timer; b.timer:SetText(timer) end
 
-        -- Click action; the secure attributes are only touched when it actually changes.
-        local typ, spell, unit, macro
+        -- Click action. Casting needs the secure attributes (only touched when they actually change);
+        -- asking is our own throttled whisper, so it needs no attributes at all.
+        local typ, spell, unit
+        b.ask = nil
         if e.preview then
             -- placeholders: no click actions
         elseif e.mode == "cast" then
             typ, spell, unit = "spell", e.spell, e.target.unit
         elseif e.providers[1] then
-            local who = GetUnitName(e.providers[1], true)
-            if who then typ, macro = "macro", "/w " .. who .. " " .. ASK_TEXT:format(e.spell) end
+            b.ask = { unit = e.providers[1], spell = e.spell }
         end
-        local action = (typ or "") .. "|" .. (spell or "") .. "|" .. (unit or "") .. "|" .. (macro or "")
+        local action = (typ or "") .. "|" .. (spell or "") .. "|" .. (unit or "")
         if b.action ~= action then
             b.action = action
             b:SetAttribute("type", typ)
             b:SetAttribute("spell", spell)
             b:SetAttribute("unit", unit)
-            b:SetAttribute("macrotext", macro)
         end
         b:Show()
     end
@@ -765,16 +846,19 @@ local function MissingText()
     return n == 0 and "All buffed up." or (n .. " buff" .. (n == 1 and "" or "s") .. " missing")
 end
 
+-- Family convention: left-click does the addon's main thing, right-click always opens its settings.
+-- BuffWarden's main thing is the bar, so left-click locks or unlocks it (unlocked shows the preview to
+-- drag). What's missing is listed by /bwarden status.
 local function OnLauncherClick(button)
-    if button == "RightButton" then BW:Report() else ToggleLock() end
+    if button == "RightButton" then BW:OpenOptions() else ToggleLock() end
 end
 
 function BuffWarden_OnAddonCompartmentClick(_, button) OnLauncherClick(button) end
 function BuffWarden_OnAddonCompartmentEnter(_, menuButton)
     GameTooltip:SetOwner(menuButton, "ANCHOR_LEFT")
     GameTooltip:AddLine(TAG)
-    GameTooltip:AddLine("Left-click: lock / unlock the bar", 1, 1, 1)
-    GameTooltip:AddLine("Right-click: list what's missing", 1, 1, 1)
+    GameTooltip:AddLine("Left-click: unlock/lock the bar", 1, 1, 1)
+    GameTooltip:AddLine("Right-click: settings", 1, 1, 1)
     GameTooltip:Show()
 end
 function BuffWarden_OnAddonCompartmentLeave() GameTooltip:Hide() end
@@ -786,7 +870,7 @@ function BW:RegisterLauncher()
         icon = "Interface\\AddOns\\BuffWarden\\Media\\notch",
         onClick = OnLauncherClick,
         status = function() return MissingText() end,
-        tooltip = { "Left-click: lock / unlock the bar", "Right-click: list what's missing" },
+        tooltip = { "Left-click: unlock/lock the bar", "Right-click: settings" },
     }, self.db)
 end
 
@@ -796,13 +880,11 @@ function BW:RegisterMinimap()
     LIB.RegisterMinimapButton("BuffWarden", {
         icon = "Interface\\AddOns\\BuffWarden\\Media\\minimap",
         label = "BuffWarden",
-        OnClick = function(_, button)
-            if button == "RightButton" then BW:OpenOptions() else OnLauncherClick("LeftButton") end
-        end,
+        OnClick = function(_, button) OnLauncherClick(button) end,
         OnTooltipShow = function(tt)
             tt:AddLine("BuffWarden", 1, 0.82, 0.3)
             tt:AddLine(MissingText(), 1, 1, 1)
-            tt:AddLine("Left-click: lock / unlock the bar", 0.8, 0.8, 0.8)
+            tt:AddLine("Left-click: unlock/lock the bar", 0.8, 0.8, 0.8)
             tt:AddLine("Right-click: settings", 0.8, 0.8, 0.8)
         end,
     }, self.db)
@@ -926,7 +1008,11 @@ end
 
 f:SetScript("OnEvent", function(_, event, unit, info)
     if event == "PLAYER_LOGIN" then
+        -- Settings from an earlier version mean the bar is already where this player wants it, so the
+        -- welcome card only asks new installs to place it.
+        local upgrade = BuffWardenDB ~= nil and next(BuffWardenDB) ~= nil
         BuffWardenDB = BuffWardenDB or {}
+        if upgrade and BuffWardenDB.placed == nil then BuffWardenDB.placed = true end
         for k, v in pairs(defaults) do
             if BuffWardenDB[k] == nil then BuffWardenDB[k] = (type(v) == "table") and {} or v end
         end
@@ -955,6 +1041,9 @@ f:SetScript("OnEvent", function(_, event, unit, info)
     elseif event == "UNIT_POWER_UPDATE" then
         -- rage decides whether a short buff like Battle Shout is worth reminding about
         if unit == "player" and info == "RAGE" and not InCombatLockdown() then BW:ScheduleRefresh() end
+    elseif event == "GROUP_ROSTER_UPDATE" then
+        wipe(askedAt)          -- keyed by name: never grows past one group
+        BW:ScheduleRefresh()
     elseif event == "SPELLS_CHANGED" or event == "PLAYER_LEVEL_UP" then
         wipe(knownCache)
         BW:ScheduleRefresh()

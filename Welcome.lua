@@ -1,7 +1,8 @@
 local ADDON, BW = ...
 
--- BuffWarden's page in LibForever's shared welcome window (/yippyapp). No setup is needed, so it never
--- opens by itself; the settings page has a "Welcome / what's new" button for it.
+-- BuffWarden's page and card in LibForever's shared YippYapp window (/yippyapp). Nothing has to be set
+-- up, but until the bar has been dragged somewhere it sits under the middle of the screen, so the card
+-- offers to place it.
 local LIB = LibStub and LibStub("LibForever-1.0", true)
 
 local ROWS = {
@@ -16,9 +17,10 @@ local ROWS = {
           .. "|cffff7a1aOrange|r: it's running out soon." },
     { icon = "Interface\\Icons\\INV_Misc_Gear_01", head = "Move, lock and settings",
       text = "Left-click the BuffWarden icon on the minimap - behind the YippYapp button if you use "
-          .. "several YippYapp addons - or type /bwarden unlock to show a preview you can drag into "
-          .. "place, then click again to lock it. The bar hides in combat. Right-click the icon or "
-          .. "type /bwarden to open the settings, where you pick which buffs to watch." },
+          .. "several YippYapp addons - to unlock the bar: you get a preview to drag into place, and a "
+          .. "second click locks it again (/bwarden unlock and lock do the same). Right-click the icon, "
+          .. "or type /bwarden, for the settings: which buffs to watch, and more. The bar hides in "
+          .. "combat." },
 }
 
 local function Build(page)
@@ -58,6 +60,14 @@ function BW:RegisterWelcome()
         id = "BuffWarden",
         title = "BuffWarden",
         subtitle = "See which buffs you and your group are missing, and fix them in one click.",
+        blurb = "Shows the buffs you and your group are missing, and casts or asks for them in one click.",
+        needsSetup = function() return not (BW.db and BW.db.placed) end,
+        reason = "The bar is still in its default spot - place it where you want it.",
+        setupLabel = "Place the bar",
+        -- "Open BuffWarden" is the bar itself: this matches a left-click on its icon (the shared row
+        -- uses it too). Right-click goes to the settings, and placing the bar stays the card's setup
+        -- action, which opens the page below and its "Place the bar now" button.
+        onOpen = function() BW:SetLocked(not BW.db.locked) end,
         icon = "Interface\\AddOns\\BuffWarden\\Media\\icon",
         version = 1,
         order = 45,

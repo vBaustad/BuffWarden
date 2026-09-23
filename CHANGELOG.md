@@ -1,5 +1,9 @@
 # BuffWarden
 
+## 0.1.0-beta4
+
+- Updated shared YippYapp library.
+
 ## 0.1.0-beta3
 
 - Warriors: Battle Shout reminder. It's a short buff that costs rage, so it only reminds out of combat, in a group, while you have the rage to shout (usually right after a fight), and warns when a tenth of its duration is left (read from the buff itself, so about 18 seconds for a 3-minute shout). Untick "Battle Shout" in the settings to turn it off.

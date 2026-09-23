@@ -34,9 +34,9 @@ nothing rather than guessing.
 ## Getting started
 
 1. Install BuffWarden.
-2. Left-click the BuffWarden icon on the minimap, or type `/bwarden unlock`. If you use several YippYapp
-   addons, the icon sits behind the YippYapp button there.
-3. Drag the preview to where you want the bar, then click the icon again (or `/bwarden lock`) to lock it.
+2. Left-click the BuffWarden icon on the minimap to unlock the bar (or type `/bwarden unlock`). If you
+   use several YippYapp addons, the icon sits behind the YippYapp button there.
+3. Drag the preview where you want it, then left-click the icon again to lock it.
 
 ### Commands
 
