@@ -1,5 +1,10 @@
 # BuffWarden
 
+## 0.1.0-beta6
+
+- Settings page: a proper pass over the whole thing. No paragraph is cut off any more - they wrap to the window's real width instead of an assumed one, which is what clipped "Kings beats Wisdom - set it here" and the weapon-buff description. One vertical rhythm throughout, so a description sits under the setting it belongs to and away from the next heading, and every dropdown and stepper lines its control up in the same column, so those rows read like the checkbox rows above them. The blessing rows and the footer got room to breathe.
+- `/bwarden debug` and the `/yippyapp test` line now say which signal decided whether you are tanking: your talents, the group's roles, or a shield with no points spent. The answer was always there; which of the three produced it was not, and they are not equally trustworthy.
+
 ## 0.1.0-beta5
 
 - Weapon buffs: BuffWarden now watches the temporary enchant on your weapons - sharpening stones, weightstones, oils and shaman imbues - and one click applies the right one from your bags (blades get sharpened, blunt weapons weighted; "Which one to use" in the settings decides when you carry both). Nothing is shown unless you have a usable stone or oil, and never for a fishing pole.

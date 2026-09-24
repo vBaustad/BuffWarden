@@ -157,18 +157,24 @@ local function Me()
 end
 BW.Me = Me
 
--- Are we tanking? Talents answer it once any are spent. Until then the off hand is the only signal
--- there is, and at that level a paladin with a shield is tanking or about to be - but a shield on
--- its own is a bad signal later, because a holy paladin carries one too, and telling a healer to
--- keep Righteous Fury up is how a healer dies.
-local function IAmTank()
+-- Are we tanking, and what told us? The signal matters as much as the answer, so it is returned
+-- alongside: talents are knowledge, a shield is a guess that is wrong for every holy paladin. Once
+-- any points are spent the talents decide; until then the off hand is all there is, and at that
+-- level a paladin with a shield is tanking or about to be. Telling a healer to keep Righteous Fury
+-- up is how a healer dies, which is why the debug line says which of the two fired.
+local function TankSignal()
     local me = Me()
-    if me.role then return me.role == "tank" end
+    if me.role then return me.role == "tank", "talents" end
     if UnitGroupRolesAssigned then
         local ok, r = pcall(UnitGroupRolesAssigned, "player")
-        if ok and Clean(r) == "TANK" then return true end
+        if ok and Clean(r) == "TANK" then return true, "the group's roles" end
     end
-    return me.shield
+    if me.shield then return true, "a shield" end
+    return false, "nothing"
+end
+
+local function IAmTank()
+    return (TankSignal())
 end
 
 local function BuffEnabled(def)
@@ -1875,8 +1881,10 @@ SlashCmdList.BUFFWARDEN = function(msg)
             local t = me.tabs and me.tabs[i]
             if t then spent[#spent + 1] = ("%s %d"):format(t.name, t.points) end
         end
+        local tank, signal = TankSignal()
         print(("  me: level %d, %s, shield=%s, role=%s"):format(me.level, tostring(me.class),
             tostring(me.shield), me.role or "unknown (no talents read)"))
+        print(("  tanking: %s, decided by %s"):format(tostring(tank), signal))
         print("  talents: " .. (#spent > 0 and table.concat(spent, ", ")
             or "|cffff5555nothing read|r - C_ClassTalents.GetActiveConfigID() gave "
                 .. tostring(C_ClassTalents and C_ClassTalents.GetActiveConfigID
@@ -1957,7 +1965,15 @@ function BW.SelfTest()
     local function note(...) said[#said + 1] = string.format(...) end
 
     local me = BW.Me()
-    note("%s %d, role %s", tostring(me.class), me.level, me.role or "unread")
+    local tank, signal = TankSignal()
+    if me.role then
+        note("%s %d, role %s from talents", tostring(me.class), me.level, me.role)
+    else
+        -- No points spent, or the client wouldn't say: then the tank question is all we can answer,
+        -- and the line says what answered it.
+        note("%s %d, no talents read, tanking=%s from %s", tostring(me.class), me.level,
+            tostring(tank), signal)
+    end
     if me.spec then note("%s %d", me.spec.name, me.spec.points) end
 
     -- Weapon enchants: item state, so this is the one read that works whatever else is restricted.

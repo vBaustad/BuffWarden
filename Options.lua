@@ -6,9 +6,36 @@ local LIB = LibStub and LibStub("LibForever-1.0", true)
 local TAG = "|cff66ccffBuffWarden|r"
 local refreshers = {}
 
-local PAD = 8          -- left edge inside the page
-local CONTENT_W = 548  -- the YippYapp window's page width, minus padding and its scrollbar
-local COL_W = 270      -- width of one column in the buff grid
+-- One set of layout rules for the whole page, so a dropdown row and a checkbox row read as the
+-- same kind of thing and no paragraph is ever cut off.
+--
+-- Width: nothing assumes the page's width. Paragraphs are anchored to BOTH edges, so they wrap to
+-- whatever the window gives us, and the vertical space reserved for them is measured at MEASURE_W,
+-- the narrowest page we plan for. A wider window therefore shows a little extra air rather than
+-- clipped words: the failure direction is a gap, never lost text.
+--
+-- Rhythm, top to bottom: BEFORE_HEAD before a heading, AFTER_HEAD under it, a control row, then
+-- TEXT_GAP to that control's own description, then BLOCK_GAP before whatever comes next.
+local PAD = 8            -- left edge inside the page
+local INDENT = 26        -- a description, or a control, sits here under the thing it belongs to
+local CONTROL_X = 200    -- every label's control starts here, so the rows line up with each other
+local MEASURE_W = 468    -- the narrowest page we plan for
+local COL_W = 234        -- one column of the buff grid: MEASURE_W / 2, so column two stays on the page
+local BEFORE_HEAD = 16
+local AFTER_HEAD = 18
+local ROW_H = 26         -- a checkbox or a button row
+local TEXT_GAP = 3       -- between a control and its own description
+local BLOCK_GAP = 12     -- after a description, before the next control or heading
+
+-- A paragraph that must never be cut off: anchored to BOTH edges so it wraps to whatever width the
+-- page really has, with its height reserved for the narrow case.
+local function Wrap(fs, parent, indent)
+    fs:SetJustifyH("LEFT")
+    fs:SetWidth(MEASURE_W - (indent or 0))
+    local h = fs:GetStringHeight()
+    fs:SetPoint("RIGHT", parent, "RIGHT", -PAD, 0)
+    return h
+end
 
 -- Everything is laid out top to bottom with a running y, so sections never overlap or leave holes.
 local function Layout(parent)
@@ -17,20 +44,18 @@ local function Layout(parent)
     function L.Gap(h) L.y = L.y - h end
 
     function L.Header(text)
-        L.Gap(10)
+        L.Gap(BEFORE_HEAD)
         local h = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
         h:SetPoint("TOPLEFT", PAD, L.y)
         h:SetText(text)
-        L.Gap(20)
+        L.Gap(AFTER_HEAD)
     end
 
     function L.Note(text, indent)
         local n = parent:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
         n:SetPoint("TOPLEFT", PAD + (indent or 0), L.y)
-        n:SetWidth(CONTENT_W - (indent or 0))
-        n:SetJustifyH("LEFT")
         n:SetText(text)
-        L.Gap(n:GetStringHeight() + 6)
+        L.Gap(Wrap(n, parent, indent) + BLOCK_GAP)
     end
 
     -- A checkbox at (x, current y); note (optional) goes under the label. Returns the checkbox.
@@ -54,8 +79,8 @@ local function Layout(parent)
         end
         refreshers[#refreshers + 1] = function() cb:SetChecked(get()) end
         if note then
-            L.Gap(24)
-            L.Note(note, 30)
+            L.Gap(ROW_H + TEXT_GAP)
+            L.Note(note, INDENT)
         end
         return cb
     end
@@ -66,8 +91,8 @@ local function Layout(parent)
         l:SetPoint("TOPLEFT", PAD, L.y - 5)
         l:SetText(label)
         local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-        btn:SetSize(250, 22)
-        btn:SetPoint("LEFT", l, "RIGHT", 10, 0)
+        btn:SetSize(MEASURE_W - CONTROL_X, 22)
+        btn:SetPoint("TOPLEFT", CONTROL_X, L.y)
         local function show() btn:SetText(labels[get()] or tostring(get())) end
         btn:SetScript("OnClick", function()
             local cur, nextValue = get(), values[1]
@@ -78,8 +103,8 @@ local function Layout(parent)
             show()
         end)
         refreshers[#refreshers + 1] = show
-        L.Gap(28)
-        if note then L.Note(note, 4) end
+        L.Gap(ROW_H + TEXT_GAP)
+        if note then L.Note(note, INDENT) else L.Gap(BLOCK_GAP - TEXT_GAP) end
     end
 
     -- "label [-] value [+]" with a note under it; value shown by fmt(get()).
@@ -89,7 +114,7 @@ local function Layout(parent)
         l:SetText(label)
         local minus = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
         minus:SetSize(24, 22)
-        minus:SetPoint("LEFT", l, "RIGHT", 10, 0)
+        minus:SetPoint("TOPLEFT", CONTROL_X, L.y)
         minus:SetText("-")
         local value = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
         value:SetPoint("LEFT", minus, "RIGHT", 8, 0)
@@ -102,8 +127,8 @@ local function Layout(parent)
         minus:SetScript("OnClick", function() set(math.max(lo, get() - step)); show() end)
         plus:SetScript("OnClick", function() set(math.min(hi, get() + step)); show() end)
         refreshers[#refreshers + 1] = show
-        L.Gap(28)
-        if note then L.Note(note, 4) end
+        L.Gap(ROW_H + TEXT_GAP)
+        if note then L.Note(note, INDENT) else L.Gap(BLOCK_GAP - TEXT_GAP) end
     end
 
     -- The blessing pickers offer what this paladin has trained and nothing else: picking a blessing
@@ -126,26 +151,33 @@ local function Layout(parent)
         return kinds[1]      -- the current pick is untrained: step back to Class default
     end
 
-    -- Which blessing each CLASS gets, in two columns so nine rows don't run off the page.
+    -- Which blessing each CLASS gets, in two columns so nine rows don't run off the page. The
+    -- geometry is built from the narrow width, so the right-hand column stays on the page.
+    local CLASS_ROW_H = 30
+    local CLASS_BTN_W = 148
+    local CLASS_LABEL_W = 64
+    local CLASS_COL = math.floor(MEASURE_W / 2)   -- 234: label, button, and air before the next one
     function L.BlessingClasses()
         L.Header("Blessing by class")
         L.Note("The defaults suit a dungeon or levelling group, where drinking is what slows you "
             .. "down: Wisdom for anyone who casts, Might for pure melee, Kings for warlocks. Once "
-            .. "everyone is geared and mana stops mattering, Kings beats Wisdom - set it here. A "
-            .. "single person can still be set below. (Forever has no Blessing of Sanctuary.)")
+            .. "everyone is geared, Kings beats Wisdom - set it here. One person can still be set "
+            .. "below.")
         local rowY = L.y
         for i, class in ipairs(BW.BLESSING_CLASS_ORDER) do
             local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
-            local x = PAD + col * 270
-            local y = rowY - row * 26
+            local x = PAD + col * CLASS_COL
+            local y = rowY - row * CLASS_ROW_H
             local c = RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
             local name = class:sub(1, 1) .. class:sub(2):lower()
             local label = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
             label:SetPoint("TOPLEFT", x, y - 4)
+            label:SetWidth(CLASS_LABEL_W)
+            label:SetJustifyH("LEFT")
             label:SetText(c and ("|c%s%s|r"):format(c.colorStr, name) or name)
             local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-            btn:SetSize(150, 22)
-            btn:SetPoint("TOPLEFT", x + 80, y)
+            btn:SetSize(CLASS_BTN_W, 22)
+            btn:SetPoint("TOPLEFT", x + CLASS_LABEL_W + 6, y)
             local function show()
                 local pick = BW.db.blessForClass[class]
                 btn:SetText(pick and (BlessingText(pick):gsub("Blessing of ", ""))
@@ -159,8 +191,8 @@ local function Layout(parent)
             end)
             refreshers[#refreshers + 1] = show
         end
-        L.y = rowY - math.ceil(#BW.BLESSING_CLASS_ORDER / 2) * 26
-        L.Gap(4)
+        L.y = rowY - math.ceil(#BW.BLESSING_CLASS_ORDER / 2) * CLASS_ROW_H
+        L.Gap(BLOCK_GAP)
     end
 
     -- Who gets which blessing: one row per groupmate, filled in from the live group whenever the page
@@ -174,11 +206,11 @@ local function Layout(parent)
         for i = 1, 5 do
             local label = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
             label:SetPoint("TOPLEFT", PAD, L.y - 4)
-            label:SetWidth(170)
+            label:SetWidth(150)
             label:SetJustifyH("LEFT")
             local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-            btn:SetSize(230, 22)
-            btn:SetPoint("TOPLEFT", PAD + 180, L.y)
+            btn:SetSize(300, 22)
+            btn:SetPoint("TOPLEFT", PAD + 156, L.y)
             btn:SetScript("OnClick", function(self)
                 if not self.full then return end
                 local nextKind = NextBlessing(BW.db.blessFor[self.full] or "auto")
@@ -187,7 +219,7 @@ local function Layout(parent)
                 BW:Refresh()
             end)
             rows[i] = { label = label, btn = btn }
-            L.Gap(26)
+            L.Gap(ROW_H + 4)
         end
         refreshers[#refreshers + 1] = function()
             local units = { "player" }
@@ -233,14 +265,12 @@ function BW:BuildOptions()
     local title = f:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", PAD, L.y)
     title:SetText("BuffWarden |cff888888v" .. BW.version .. "|r")
-    L.Gap(26)
+    L.Gap(ROW_H)
     local sub = f:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     sub:SetPoint("TOPLEFT", PAD, L.y)
-    sub:SetWidth(CONTENT_W)
-    sub:SetJustifyH("LEFT")
     sub:SetText("Shows the buffs you and your group are missing. Click an icon to cast it, or to ask the "
         .. "groupmate who has it.")
-    L.Gap(sub:GetStringHeight() + 4)
+    L.Gap(Wrap(sub, f) + 6)
 
     local _, myClass = UnitClass("player")
 
@@ -277,7 +307,6 @@ function BW:BuildOptions()
     L.Header("Which buffs")
     L.Note("Untick a buff to stop watching it. Your own class's buffs show as gold (you cast them); group "
         .. "buffs from other classes show as grey (you ask for them).")
-    L.Gap(2)
     local rowY = L.y
     for i, def in ipairs(BW.BUFFS) do
         local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
@@ -293,14 +322,14 @@ function BW:BuildOptions()
         elseif def.scope == "food" then
             classText = "|cff888888Food|r"
         end
-        L.y = rowY - row * 26
+        L.y = rowY - row * ROW_H
         L.Check(("|T%s:16:16|t %s  %s"):format(tostring(BW.IconFor(def)), name, classText), nil,
             function() return BW.BuffEnabled(def) end,
             function(v) db.disabled[def.key] = not v; BW:Refresh() end,
             PAD + col * COL_W,
             def.note or (def.scope == "self" and "A buff you put on yourself." or "A buff for the whole group."))
     end
-    L.y = rowY - math.ceil(#BW.BUFFS / 2) * 26
+    L.y = rowY - math.ceil(#BW.BUFFS / 2) * ROW_H
 
     if myClass == "PALADIN" then
         L.Check("Show a row of blessing buttons",
@@ -381,14 +410,12 @@ function BW:BuildOptions()
         function(v) db.readyCheck = v end)
 
     -- Footer -------------------------------------------------------------------
-    L.Gap(12)
+    L.Gap(BEFORE_HEAD + BLOCK_GAP)
     local footer = f:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
     footer:SetPoint("TOPLEFT", PAD, L.y)
-    footer:SetWidth(CONTENT_W)
-    footer:SetJustifyH("LEFT")
     footer:SetText("|cffffd100/bwarden|r opens this page.  |cffffd100/bwarden help|r lists the commands.\n"
         .. "Part of YippYapp - addons for WoW: Forever that work even better together.")
-    L.Gap(footer:GetStringHeight() + 12)
+    L.Gap(Wrap(footer, f) + 12)
     local height = -L.y
     f:SetHeight(height)
     panel:SetHeight(height)
