@@ -8,8 +8,9 @@ local LIB = LibStub and LibStub("LibForever-1.0", true)
 local ROWS = {
     { icon = "Interface\\Icons\\Spell_Holy_WordFortitude", head = "What it shows",
       text = "A small row of icons for the buffs you're missing: your own (Inner Fire, Mage Armor, "
-          .. "Aspects...) and the group buffs your party can give (Fortitude, Arcane Intellect, "
-          .. "Mark of the Wild, Blessings). When nothing is missing, nothing is shown." },
+          .. "Aspects...), the group buffs your party can give (Fortitude, Arcane Intellect, "
+          .. "Mark of the Wild, Blessings), food, and the buff on your weapon - stones, oils, imbues "
+          .. "and poisons. When nothing is missing, nothing is shown." },
     { icon = "Interface\\Icons\\Spell_Holy_MagicalSentry", head = "One click to fix it",
       text = "|cffffd24dGold|r: you can cast it yourself. The number is how many in your group are "
           .. "missing it, and a click casts it on the nearest one.\n"

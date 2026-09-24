@@ -22,11 +22,27 @@ it. When someone else has it, a click whispers them to ask. When nothing is miss
   buff like Divine Spirit once someone in the group is seen carrying it.
 - **Orange icon: running out soon.** Under 5 minutes left by default (change it in the settings); short
   buffs warn at a tenth of their duration. The icon shows the time left.
-- **Blessings.** You should carry one Blessing from each paladin in the group. As a paladin, BuffWarden picks
-  Kings if you have it, otherwise Wisdom for mana users and Might for everyone else.
+- **Blessings.** You should carry one Blessing from each paladin in the group. As a paladin you get a row
+  with one button per Blessing you know, each showing who the next click will buff and why. The defaults
+  suit a dungeon or levelling group, where drinking is what slows you down: Wisdom for anyone who casts,
+  Might for pure melee, Kings for warlocks (Life Tap pays for their mana). Hunters get
+  Wisdom, not Might: Blessing of Might is melee attack power, which does nothing for a shot. Set it per class
+  or per person in the settings, and once everyone is geared, Kings beats Wisdom. The row appears only when
+  somebody actually needs a blessing; when it is up, the ones nobody asked for are dimmed, and a click puts
+  one on whoever you point at or have targeted - which is how you hand Salvation to the one pulling aggro.
+- **Weapon buffs.** Sharpening stones, weightstones, oils and shaman imbues, with one click to apply the
+  right one from your bags. A stone is matched to your weapon, and nothing is shown unless you carry one
+  that fits (never for a fishing pole).
+- **It knows what you are.** BuffWarden reads your own class, level, talents, weapons and trained
+  spells, so advice meant for a tank doesn't reach a healer. Other players stay private: their spec is
+  not readable and BuffWarden never guesses at it.
 - **Ready check.** Optionally lists what you can cast and what you're missing in chat.
 
-Buffs can't be read in combat on Forever; the bar keeps its pre-pull state and updates when combat ends.
+**The weapon buff is the exception in combat.** A weapon enchant is item state rather than a buff, so
+BuffWarden reads it during a fight: a small readout shows the time left and warns when it runs out, while
+everything else is hidden.
+
+Other buffs can't be read in combat on Forever; the bar keeps its pre-pull state and updates when combat ends.
 It hides in combat by default (you can keep it shown in the settings; it then wears a small clock until
 combat ends). During some encounters the game hides buffs outside combat too, and BuffWarden then shows
 nothing rather than guessing.

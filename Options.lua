@@ -60,6 +60,28 @@ local function Layout(parent)
         return cb
     end
 
+    -- "label [ value ]" - a button that steps through a few named choices.
+    function L.Cycle(label, note, values, labels, get, set)
+        local l = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+        l:SetPoint("TOPLEFT", PAD, L.y - 5)
+        l:SetText(label)
+        local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+        btn:SetSize(250, 22)
+        btn:SetPoint("LEFT", l, "RIGHT", 10, 0)
+        local function show() btn:SetText(labels[get()] or tostring(get())) end
+        btn:SetScript("OnClick", function()
+            local cur, nextValue = get(), values[1]
+            for i, v in ipairs(values) do
+                if v == cur then nextValue = values[(i % #values) + 1] end
+            end
+            set(nextValue)
+            show()
+        end)
+        refreshers[#refreshers + 1] = show
+        L.Gap(28)
+        if note then L.Note(note, 4) end
+    end
+
     -- "label [-] value [+]" with a note under it; value shown by fmt(get()).
     function L.Stepper(label, note, get, set, step, lo, hi, fmt)
         local l = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
@@ -82,6 +104,111 @@ local function Layout(parent)
         refreshers[#refreshers + 1] = show
         L.Gap(28)
         if note then L.Note(note, 4) end
+    end
+
+    -- The blessing pickers offer what this paladin has trained and nothing else: picking a blessing
+    -- you cannot cast would quietly do nothing, which is worse than not offering it at all. A choice
+    -- stored before it was trained still shows, marked, so the player can see why nothing happens.
+    local function BlessingText(kind)
+        local label = BW.BLESSING_LABEL[kind] or tostring(kind)
+        local info = BW.BLESSING_KINDS[kind]
+        if kind ~= "auto" and not (info and BW.Knows(info.spell)) then
+            return label .. " |cffff5555(not learned)|r"
+        end
+        return label
+    end
+
+    local function NextBlessing(cur)
+        local kinds = BW.KnownBlessingKinds()
+        for i, v in ipairs(kinds) do
+            if v == cur then return kinds[(i % #kinds) + 1] end
+        end
+        return kinds[1]      -- the current pick is untrained: step back to Class default
+    end
+
+    -- Which blessing each CLASS gets, in two columns so nine rows don't run off the page.
+    function L.BlessingClasses()
+        L.Header("Blessing by class")
+        L.Note("The defaults suit a dungeon or levelling group, where drinking is what slows you "
+            .. "down: Wisdom for anyone who casts, Might for pure melee, Kings for warlocks. Once "
+            .. "everyone is geared and mana stops mattering, Kings beats Wisdom - set it here. A "
+            .. "single person can still be set below. (Forever has no Blessing of Sanctuary.)")
+        local rowY = L.y
+        for i, class in ipairs(BW.BLESSING_CLASS_ORDER) do
+            local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
+            local x = PAD + col * 270
+            local y = rowY - row * 26
+            local c = RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+            local name = class:sub(1, 1) .. class:sub(2):lower()
+            local label = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+            label:SetPoint("TOPLEFT", x, y - 4)
+            label:SetText(c and ("|c%s%s|r"):format(c.colorStr, name) or name)
+            local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+            btn:SetSize(150, 22)
+            btn:SetPoint("TOPLEFT", x + 80, y)
+            local function show()
+                local pick = BW.db.blessForClass[class]
+                btn:SetText(pick and (BlessingText(pick):gsub("Blessing of ", ""))
+                    or BW.BLESSING_LABEL.auto)
+            end
+            btn:SetScript("OnClick", function()
+                local nextKind = NextBlessing(BW.db.blessForClass[class] or "auto")
+                BW.db.blessForClass[class] = (nextKind ~= "auto") and nextKind or nil
+                show()
+                BW:Refresh()
+            end)
+            refreshers[#refreshers + 1] = show
+        end
+        L.y = rowY - math.ceil(#BW.BLESSING_CLASS_ORDER / 2) * 26
+        L.Gap(4)
+    end
+
+    -- Who gets which blessing: one row per groupmate, filled in from the live group whenever the page
+    -- is shown. Five rows is a full party; a raid shows your own group.
+    function L.Blessings()
+        L.Header("Who gets which blessing")
+        L.Note("Anyone left on \"Class default\" follows the list above. You are the exception: you "
+            .. "get Might unless you have trained the healer talents, since you are the one meleeing. "
+            .. "The icon's tooltip always says which blessing and why.")
+        local rows = {}
+        for i = 1, 5 do
+            local label = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+            label:SetPoint("TOPLEFT", PAD, L.y - 4)
+            label:SetWidth(170)
+            label:SetJustifyH("LEFT")
+            local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+            btn:SetSize(230, 22)
+            btn:SetPoint("TOPLEFT", PAD + 180, L.y)
+            btn:SetScript("OnClick", function(self)
+                if not self.full then return end
+                local nextKind = NextBlessing(BW.db.blessFor[self.full] or "auto")
+                BW.db.blessFor[self.full] = (nextKind ~= "auto") and nextKind or nil
+                self:SetText(BlessingText(nextKind))
+                BW:Refresh()
+            end)
+            rows[i] = { label = label, btn = btn }
+            L.Gap(26)
+        end
+        refreshers[#refreshers + 1] = function()
+            local units = { "player" }
+            for i = 1, 4 do units[#units + 1] = "party" .. i end
+            for i, row in ipairs(rows) do
+                local u = units[i]
+                local name = u and UnitExists(u) and GetUnitName(u, true)
+                row.full = name or nil
+                row.btn.full = row.full
+                if name then
+                    local _, class = UnitClass(u)
+                    row.label:SetText(LIB and LIB.ColorName(name, class) or name)
+                    row.btn:SetText(BlessingText(BW.db.blessFor[name] or "auto"))
+                    row.label:Show()
+                    row.btn:Show()
+                else
+                    row.label:SetText(i == 1 and "|cff888888(nobody in your group)|r" or "")
+                    row.btn:Hide()
+                end
+            end
+        end
     end
 
     return L
@@ -115,6 +242,8 @@ function BW:BuildOptions()
         .. "groupmate who has it.")
     L.Gap(sub:GetStringHeight() + 4)
 
+    local _, myClass = UnitClass("player")
+
     -- Bar --------------------------------------------------------------------
     L.Header("Bar")
     L.Check("Unlock the bar",
@@ -132,6 +261,12 @@ function BW:BuildOptions()
         function(v) db.threshold = v * 60; BW:Refresh() end,
         1, 1, 15, function(v) return v .. " min left" end)
 
+    L.Stepper("Icons on one line", "Everything BuffWarden shows - buffs, weapon buffs and the blessing "
+        .. "buttons - sits on one line until there are this many, then a second line starts.",
+        function() return db.perRow end,
+        function(v) db.perRow = v; BW:Refresh() end,
+        1, 2, 16, function(v) return v .. " icons" end)
+
     L.Check("Ignore groupmates who are far away",
         "Someone in another zone, or a long way off, isn't counted as missing a buff. Groupmates just "
         .. "out of casting range are still shown, marked \"out of range\".",
@@ -146,10 +281,18 @@ function BW:BuildOptions()
     local rowY = L.y
     for i, def in ipairs(BW.BUFFS) do
         local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
+        -- Not every buff comes from a class spell: Well Fed is eaten, so it has no class and nothing
+        -- to look a name up from. Fall back through what the buff does have.
         local name = (def.spellID and C_Spell.GetSpellName(def.spellID)) or def.cast[1]
-        local c = RAID_CLASS_COLORS and RAID_CLASS_COLORS[def.class]
-        local classText = c and ("|c%s%s|r"):format(c.colorStr, def.class:sub(1, 1) .. def.class:sub(2):lower())
-            or def.class
+            or def.names[1] or def.key
+        local classText = ""
+        if def.class then
+            local c = RAID_CLASS_COLORS and RAID_CLASS_COLORS[def.class]
+            local pretty = def.class:sub(1, 1) .. def.class:sub(2):lower()
+            classText = c and ("|c%s%s|r"):format(c.colorStr, pretty) or pretty
+        elseif def.scope == "food" then
+            classText = "|cff888888Food|r"
+        end
         L.y = rowY - row * 26
         L.Check(("|T%s:16:16|t %s  %s"):format(tostring(BW.IconFor(def)), name, classText), nil,
             function() return BW.BuffEnabled(def) end,
@@ -158,6 +301,77 @@ function BW:BuildOptions()
             def.note or (def.scope == "self" and "A buff you put on yourself." or "A buff for the whole group."))
     end
     L.y = rowY - math.ceil(#BW.BUFFS / 2) * 26
+
+    if myClass == "PALADIN" then
+        L.Check("Show a row of blessing buttons",
+            "One button per blessing you know, on the same row: how many people want it, who is next, "
+            .. "and a click casts it and moves on. The row appears only when someone actually needs a "
+            .. "blessing, and the ones nobody asked for are dimmed, for when you want to pick yourself.",
+            function() return db.blessRow end,
+            function(v) db.blessRow = v; BW:Refresh() end)
+        L.Check("Name the next person on the button",
+            "The name sits under each blessing button, so you see who you are about to buff. Turn it off "
+            .. "for a smaller row - the tooltip still says who.",
+            function() return db.blessNames end,
+            function(v) db.blessNames = v; BW:Refresh() end)
+        L.BlessingClasses()
+        L.Blessings()
+        L.Check("Kings to everyone I can",
+            "Off: each class gets what the list above says. On: Blessing of Kings to everyone you "
+            .. "know it for, whatever their class. The icon's tooltip always says which blessing and "
+            .. "why.",
+            function() return db.blessKings end,
+            function(v) db.blessKings = v; BW:Refresh() end)
+    end
+
+    -- Weapon buffs ---------------------------------------------------------------
+    L.Header("Weapon buffs")
+    L.Check("Watch the buff on my weapons",
+        "Sharpening stones, weightstones, oils and shaman imbues. Nothing is shown unless you have a "
+        .. "usable stone or oil in your bags (or the imbue spell), and never for a fishing pole. This is "
+        .. "the one buff BuffWarden can still read during combat, so it also shows there.",
+        function() return db.weaponBuffs end,
+        function(v) db.weaponBuffs = v; BW:Refresh() end)
+    if myClass == "SHAMAN" then
+        -- The whole list stays, since a trainer visit changes it, but one you have not trained says
+        -- so instead of looking available.
+        local imbueLabels = setmetatable({}, { __index = function(_, k)
+            local label = BW.IMBUE_LABEL[k] or tostring(k)
+            if k ~= "auto" and not BW.Knows(k) then return label .. " |cffff5555(not learned)|r" end
+            return label
+        end })
+        L.Cycle("Weapon imbue", "Which imbue to remind you about. It goes on your main hand. Pick one "
+            .. "you have not trained and BuffWarden uses the best one you know instead.",
+            { "auto", "Windfury Weapon", "Flametongue Weapon", "Frostbrand Weapon", "Rockbiter Weapon" },
+            imbueLabels,
+            function() return db.imbuePref end,
+            function(v) db.imbuePref = v; BW:Refresh() end)
+    elseif myClass == "ROGUE" then
+        -- Poisons are bag items, so "you cannot use that" means "none on you", and it changes as
+        -- you shop. The list stays whole and says which ones you are out of.
+        local poisonLabels = setmetatable({}, { __index = function(_, k)
+            local label = BW.POISON_LABEL[k] or tostring(k)
+            if k ~= "auto" and k ~= "none" and not BW.CarryPoison(k) then
+                return label .. " |cffff5555(none in your bags)|r"
+            end
+            return label
+        end })
+        L.Cycle("Main hand poison", nil, BW.POISON_CHOICES, poisonLabels,
+            function() return db.poisonMain end,
+            function(v) db.poisonMain = v; BW:Refresh() end)
+        L.Cycle("Off hand poison", "Whichever you pick, BuffWarden uses the strongest rank you carry. "
+            .. "Don't carry the one you picked and it offers what you do have.",
+            BW.POISON_CHOICES, poisonLabels,
+            function() return db.poisonOff end,
+            function(v) db.poisonOff = v; BW:Refresh() end)
+    end
+    L.Cycle("Which stone or oil", "A stone is matched to your weapon: blades sharpened, blunt weapons "
+        .. "weighted. Oils fit any of them, so this decides when you carry both.",
+        { "auto", "stone", "oil" },
+        { auto = "Automatic (oil for casters, a stone otherwise)",
+          stone = "Always a stone", oil = "Always an oil" },
+        function() return db.weaponPref end,
+        function(v) db.weaponPref = v; BW:Refresh() end)
 
     -- Chat ---------------------------------------------------------------------
     L.Header("Chat")

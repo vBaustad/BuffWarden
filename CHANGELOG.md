@@ -1,5 +1,20 @@
 # BuffWarden
 
+## 0.1.0-beta5
+
+- Weapon buffs: BuffWarden now watches the temporary enchant on your weapons - sharpening stones, weightstones, oils and shaman imbues - and one click applies the right one from your bags (blades get sharpened, blunt weapons weighted; "Which one to use" in the settings decides when you carry both). Nothing is shown unless you have a usable stone or oil, and never for a fishing pole.
+- Well Fed: BuffWarden now tells you when you're missing the food buff. With AutoFeed installed, a click eats your best food through its macro; without it, the icon is a reminder.
+- Rogues: poisons, one hand at a time, with the strongest rank you carry. Pick which poison goes on each hand in the settings (the default is Instant on the main hand, Deadly on the off hand), or turn one hand off.
+- Shamans: pick which weapon imbue to be reminded about (Windfury, Flametongue, Frostbrand, Rockbiter), or let BuffWarden use the best one you know.
+- Paladins: a row with one button per Blessing you know, each showing who the next click will buff. The tooltip always says which Blessing and why, and says so plainly when it's a guess. The defaults are built for dungeons and levelling, where drinking between pulls is what costs you the evening: Wisdom for anyone who casts, Might for pure melee, Kings for warlocks. Hunters get Wisdom, not Might - Blessing of Might is melee attack power and does nothing for a shot. You are the exception to your own rules: you get Might unless you have trained the healer talents, because whatever you eventually become, right now you are the one meleeing. (Forever has no Blessing of Sanctuary, so it is no longer offered anywhere.) "Blessing by class" and "Who gets which blessing" in the settings override all of it, and once the group is geared, Kings beats Wisdom.
+- The blessing row only appears when someone actually needs a blessing from you, so a paladin who has blessed himself and is standing alone sees nothing. When it is up you get every blessing you know, and the ones nobody asked for are dimmed: click one and it goes to whoever you're pointing at in your party frames, or to your target, or to you - which is how you hand Salvation to the one pulling aggro off the tank.
+- BuffWarden now reads your own talents, which Forever keeps in one tree per class with the three old tabs inside it. Nothing about other players changes - we still can't see their spec, and don't pretend to - but about ourselves we no longer guess.
+- Fixed: a holy paladin with a shield was told to keep Righteous Fury up. That is advice that gets a healer killed, and it happened because a shield was the only way to tell a tank from a healer. Now your talents decide, and the shield is only used before you have spent a point.
+- Your own blessing follows your talents too: points in Holy get you Wisdom, points in Protection or Retribution get you Might, and the tooltip says which - "31 points in Protection, so mana isn't your first problem". Spent nothing yet? You get Might, and it says so.
+- `/bwarden debug` now prints what BuffWarden thinks you are: level, class, shield, role and the points in each talent tab.
+- BuffWarden only offers what you can actually use. The blessing pickers list the blessings you have trained and nothing else, so a level 12 paladin is not invited to assign Kings to the mage and then wonder why nothing happens. A weapon imbue you have not trained is marked "(not learned)", a poison you are out of says "(none in your bags)", and both fall back to the best you do have.
+- **This one works in combat.** Every real buff is hidden from addons during a fight on Forever, but a weapon enchant is item state, not a buff, so BuffWarden shows a small readout with the time left while you fight, and warns when it is running out. Applying it still waits until combat ends.
+
 ## 0.1.0-beta4
 
 - Updated shared YippYapp library.
