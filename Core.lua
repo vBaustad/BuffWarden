@@ -281,6 +281,25 @@ local function FoodMacro()
     return nil
 end
 
+-- Is there food in the bags that would make us Well Fed, and which? AutoFeed is the only one that
+-- knows - it classifies buff food while building its macros - and answers one of three things:
+-- an itemID, false for "scanned, and there is none", or nil for "no opinion yet".
+--
+-- Only an explicit false hides the icon. nil means we don't know, never "there is none": treating
+-- the two the same would blink Well Fed away in the seconds before AutoFeed's first scan, or drop
+-- it silently for good if that scan never ran. It is the same rule we use for a secret value.
+--
+-- Without AutoFeed installed the answer is nil for ever, so BuffWarden behaves exactly as it did
+-- before: we cannot see the bags ourselves, and guessing would be worse than asking.
+local function BuffFood()
+    if not (LIB and LIB.GetData) then return nil end
+    local data = LIB.GetData("AutoFeedConsumables")
+    if type(data) ~= "table" or type(data.BuffFood) ~= "function" then return nil end
+    local ok, id = pcall(data.BuffFood)     -- another addon's code: its bug must not break our bar
+    if not ok then return nil end
+    return id
+end
+
 -- ---------------------------------------------------------------------------
 -- Weapon buffs (temporary enchants)
 -- ---------------------------------------------------------------------------
@@ -637,34 +656,53 @@ local function BlessingFor(m)
         if spell then return spell, "you asked for Kings for everyone" end
     end
 
-    -- 4. Ourselves, where we are not guessing: we can read our own spellbook. A paladin who has
-    -- trained the healer talents wants Wisdom; every other paladin is meleeing, whether he is
-    -- tanking in a dungeon or grinding alone, and wants Might. Gear deliberately isn't used here -
-    -- a shield would call a holy paladin a tank, and Might on a healer is worth nothing.
+    -- 4. Ourselves, where we are not guessing: we can read our own talents and our own spellbook.
+    -- A paladin who has trained the healer talents wants Wisdom. Everyone else - tanking a dungeon
+    -- or grinding alone - gets the same ladder a tank in the group gets: Kings, and Might until it
+    -- is trained. There is no Sanctuary in this game, so 10% of every stat is the best a paladin can
+    -- put on himself, and it would be odd to hand a groupmate's protection paladin Kings and
+    -- ourselves Might for the same character.
+    --
+    -- Gear deliberately isn't used here: a shield would call a holy paladin a tank, and taking mana
+    -- away from a healer is the one mistake with no upside.
+    --
+    -- Might is the better DAMAGE buff for a tanking paladin and we hand them Kings anyway, on
+    -- purpose. Measured on a real level 20 protection paladin: 83 strength, attack power "212
+    -- (206 +6)" with "Increased by Strength" in the tooltip, which is 83 x 2 exactly as
+    -- chrclasses.AttackPowerPerStrength says for a PALADIN - the conversion differs by class, so
+    -- this arithmetic is a paladin's and nobody else's (the per-class list is in Data.lua). Might rank 2 is +25 of that, about 12% more damage.
+    -- Kings is +8 strength, so +16 attack power, about 7.5%, plus roughly 80 health and 45 mana.
+    --
+    -- So this rests on ONE argument, not two: not that Kings catches up on damage - it never does,
+    -- for anyone, at any level - but that four percentage points of damage is a worse trade than
+    -- 7-8% of a tank's health and the mana to keep Consecration up. Better one argument that holds
+    -- than two where the second has to be true as well.
     if m.isMe then
         local me = BW.Me()
+        -- Not healing: Kings if we have it, Might until then.
+        local function NotHealing(why)
+            local s = KindSpell("kings") or KindSpell("might")
+            if s then return s, why end
+        end
         if me.role == "healer" then
             spell = KindSpell("wisdom")
             if spell then
                 return spell, ("%d points in %s, so you're healing"):format(me.spec.points, me.spec.name)
             end
         elseif me.role then
-            spell = KindSpell("might")
-            if spell then
-                return spell, ("%d points in %s, so mana isn't your first problem")
-                    :format(me.spec.points, me.spec.name)
-            end
+            local s, why = NotHealing(("%d points in %s, so mana isn't your first problem")
+                :format(me.spec.points, me.spec.name))
+            if s then return s, why end
         else
             -- No points spent yet, or the client won't say. The trained spells are the weaker
-            -- signal and the gear is no signal at all here, since a shield and a two-hander both
-            -- end at Might.
+            -- signal, and the gear is no signal at all.
             local sign = FirstKnown(BW.PALADIN_HEALER_SIGNS)
             if sign then
                 spell = KindSpell("wisdom")
                 if spell then return spell, ("you trained %s, so you're healing"):format(sign) end
             end
-            spell = KindSpell("might")
-            if spell then return spell, "no talents spent yet, and you're the one meleeing" end
+            local s, why = NotHealing("nothing read about your talents, and you're the one swinging")
+            if s then return s, why end
         end
     end
 
@@ -685,13 +723,15 @@ local function BlessingFor(m)
     if byClass then
         spell = KindSpell(byClass.kind)
         if spell then return spell, byClass.why end
-        -- Their blessing isn't trained yet. The reason is its own sentence rather than the class
-        -- reason with a clause bolted on, which reads as nonsense ("hunters burn mana until you
-        -- learn Wisdom"), and it says plainly that this is temporary.
-        spell = KindSpell(byClass.fallback)
-        if spell then
-            return spell, ("they want %s, which you haven't learned yet"):format(
-                (BW.BLESSING_KINDS[byClass.kind].spell):gsub("^Blessing of ", ""))
+        -- Their blessing isn't trained yet, so work down the fallbacks. The reason is its own
+        -- sentence rather than the class reason with a clause bolted on, which reads as nonsense
+        -- ("hunters burn mana until you learn Wisdom"), and it says plainly that this is temporary.
+        for _, kind in ipairs(byClass.fallback) do
+            spell = KindSpell(kind)
+            if spell then
+                return spell, ("they want %s, which you haven't learned yet"):format(
+                    (BW.BLESSING_KINDS[byClass.kind].spell):gsub("^Blessing of ", ""))
+            end
         end
     end
 
@@ -841,11 +881,16 @@ function BW:Compute()
             local mine = def.class == myClass and FirstKnown(def.cast)
 
             if def.scope == "food" then
-                if not me.unreadable then
+                -- false means AutoFeed looked and there is nothing to eat: no icon at all, since an
+                -- icon you cannot act on is just nagging. nil means nobody knows, so we still show
+                -- it, exactly as before AutoFeed could answer.
+                local food = BuffFood()
+                if not me.unreadable and food ~= false then
                     local ok, left = HasBuff(me.auras, def.names)
                     if not ok then
                         entries[#entries + 1] = { key = def.key, def = def, mode = "food",
-                            spell = "Well Fed", macro = FoodMacro(), expiring = left, reachable = true }
+                            spell = "Well Fed", macro = FoodMacro(), expiring = left,
+                            food = food or nil, reachable = true }
                     end
                 end
 
@@ -1089,8 +1134,11 @@ local function ButtonOnEnter(self)
     end
     if e.mode == "food" then
         GameTooltip:AddLine(e.expiring and "Running out on you." or "You're not Well Fed.", 1, 1, 1)
+        local foodName = e.food and C_Item.GetItemNameByID and C_Item.GetItemNameByID(e.food)
         if e.macro then
             GameTooltip:AddLine("Click: eat your best food (AutoFeed's " .. e.macro .. " macro)", 0.4, 1, 0.4)
+        elseif foodName then
+            GameTooltip:AddLine("Eat your " .. foodName .. ".", 0.6, 0.6, 0.6, true)
         else
             GameTooltip:AddLine("Eat something that gives Well Fed.", 0.6, 0.6, 0.6, true)
         end
@@ -1844,13 +1892,16 @@ SlashCmdList.BUFFWARDEN = function(msg)
         if kind == "" or kind == "auto" then
             db.blessFor[full] = nil
             print(TAG .. ": " .. full .. " goes back to the class default.")
+        elseif BW.BLESSING_KINDS[kind] and not Knows(BW.BLESSING_KINDS[kind].spell) then
+            -- Same rule as the settings pickers: we don't let anyone choose a blessing that could
+            -- never be cast, because nothing would happen and nothing would say why.
+            print(TAG .. ": you haven't trained that one. Kinds you know: "
+                .. table.concat(BW.KnownBlessingKinds(), ", "))
+            return
         elseif BW.BLESSING_KINDS[kind] then
             db.blessFor[full] = kind
             print(TAG .. ": " .. full .. " gets " .. BW.BLESSING_KINDS[kind].spell
                 .. " (stored by full name, so it follows that character only).")
-            if not Knows(BW.BLESSING_KINDS[kind].spell) then
-                print("  you don't know that one yet - it takes effect when you learn it.")
-            end
         else
             print(TAG .. ": kinds are " .. table.concat(BW.KnownBlessingKinds(), ", "))
             return
@@ -2039,6 +2090,7 @@ f:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")   -- weapon swapped
 f:RegisterEvent("ADDON_RESTRICTION_STATE_CHANGED")
 f:RegisterEvent("PLAYER_TALENT_UPDATE")        -- a point spent changes what we think we are
 f:RegisterEvent("TRAIT_CONFIG_UPDATED")
+f:RegisterEvent("LEARNED_SPELL_IN_SKILL_LINE") -- trained something: it may be a blessing
 -- Is this aura update about a buff we watch? Full updates and unreadable ones count; otherwise only
 -- added watched buffs, and removed or changed auras we saw as watched on the last scan.
 local function AuraUpdateMatters(unit, info)
@@ -2111,7 +2163,20 @@ f:SetScript("OnEvent", function(_, event, unit, info)
         wipe(knownCache)
         BW.ForgetMe()          -- the profile holds our level, and a new rank can be a new signal
         BW:ScheduleRefresh()
+    elseif event == "LEARNED_SPELL_IN_SKILL_LINE" then
+        -- The one the player is watching for: they just trained Blessing of Kings and want it on the
+        -- bar now, not whenever something else happens to fire SPELLS_CHANGED. Short delay so a
+        -- trainer teaching several ranks at once still only refreshes the once.
+        wipe(knownCache)
+        BW.ForgetMe()
+        BW:ScheduleRefresh(0.2)
     elseif event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" then
+        -- Both caches, not just the talents: a talent point can hand us a whole new SPELL, not only
+        -- change who we think we are. Divine Favor is ours - it is one of the healer signals the
+        -- profile reads - so a stale knownCache would keep calling a fresh healer a melee until
+        -- something unrelated happened to fire SPELLS_CHANGED. The event's name does not say this,
+        -- which is exactly why it was missed.
+        wipe(knownCache)
         BW.ForgetTalents()     -- read the tree again: this is what decides healer from tank
         BW:ScheduleRefresh()
     elseif event == "PLAYER_REGEN_DISABLED" then

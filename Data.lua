@@ -76,35 +76,113 @@ BW.PALADIN_HEALER_SIGNS = { "Divine Favor", "Holy Shock" }
 -- The order the blessing row shows its buttons in.
 BW.BLESSING_ORDER = { "might", "wisdom", "kings", "salvation", "light" }
 
--- The default per class, aimed at dungeons and levelling (raids are PallyPower's job), where the
--- thing that costs a group its evening is drinking between pulls. That is why the casters default to
--- Wisdom rather than Kings: Kings wins once everyone is geared and mana stops being the limit, and
--- that is what the per-class setting below is for.
+-- The default per class, aimed at dungeons and levelling (raids are PallyPower's job).
 --
--- Spec is not readable in Forever - one class, one "spec" - so where a class splits, the default is
--- picked by which mistake is CHEAPER, not by which spec is more common. Might on a resto shaman is
--- worth exactly nothing; Wisdom on an enhancement shaman still pays for his shocks and for imbuing
--- his weapon again. So the classes that might heal get Wisdom, and the tooltip says "(class
--- default)" so a wrong guess is visible and one click from fixed.
+-- Both sources the player gave us agree that Kings is where a caster ends up: their own priority
+-- list put Kings on the casters outright, and the Classic guide made it "the secondary when mana
+-- regen isn't an issue". The first version of this table was written when Kings was out of reach, so
+-- it read the guide's Wisdom line and stopped there. With Kings actually trainable, 10% of every
+-- stat is the better half of that source for anyone who is not fighting their mana bar.
+--
+-- Who is still fighting it: whoever is HEALING. A healer's output is mana, full stop, and Kings
+-- gives them nothing they can spend. Spec is not readable in Forever - one class, one "spec" - so
+-- the four classes that might be the healer keep Wisdom, on the same rule that built this table in
+-- the first place: take the CHEAPER mistake. Wisdom on a damage-dealer is still worth something;
+-- Kings on a healer costs them the resource they actually run out of.
+--
+-- So the first question is "can this class be the healer", not "does it cast":
+--   might be the healer    -> Wisdom  (priest, druid, shaman, paladin)
+--   never heals, has mana  -> Kings   (mage, warlock, hunter)
+--   never heals, no mana   -> a second question, below (warrior, rogue)
+--
+-- The healer rule alone would hand Might's classes Kings too, since they cannot heal either. It
+-- doesn't, and the reason is its own rule rather than an unstated exception: for a class with no
+-- mana bar, Might and Kings are weighed against each other on their own numbers. Every number below
+-- is from this client, so the line is checkable rather than inherited:
+--
+--   Blessing of Might, from spelleffect, is flat attack power per rank:
+--     +14 at level 4, +25 at 12, +40 at 22, +61 at 32, +83 at 42, +112 at 52, +133 at 60
+--   Blessing of Kings is aura 137, 10% of every stat.
+--   chrclasses carries the conversion PER CLASS, and it is not the same for everyone - reading one
+--   class's number as everybody's would be wrong. From this build:
+--       class    AP/str  AP/agi  rangedAP/agi
+--       warrior    2       0        2
+--       paladin    2       0        0
+--       shaman     2       0        0
+--       druid      2       0        0
+--       hunter     1       1        2
+--       rogue      1       1        2
+--       priest     1       0        0
+--       mage       1       0        0
+--       warlock    1       0        0
+--   So Kings buys a warrior 0.2 x strength in attack power, a rogue 0.1 x (strength + agility) -
+--   about 30 at level 60 against Might's 133 - and a hunter almost nothing from strength, while
+--   giving them 0.2 x agility of the RANGED attack power their shots actually use.
+--
+--   Careful with the rogue, though: agility is their primary stat and their gear is full of it, so
+--   Kings applies its 10% to a much larger pool than strength, and each point also buys crit, dodge
+--   and armour that attack power does not. That extra is NOT measurable from this database - there
+--   is no agility-to-crit table in this build - so the only part we can compare honestly is the
+--   attack power, and there Might's 133 against roughly 30 is not close. The rogue line rests on
+--   that gap, not on a claim that Kings is worth less to a rogue than to a warrior. Per point it is
+--   worth more; it is simply nowhere near Might on damage.
+--
+--   AttackPowerPerStrength is 2 for a warrior, and 0 per agility. MEASURED in game as
+--   well, not just read from the table: a level 20 paladin with 83 strength hovers attack power and
+--   the tooltip says "212 (206 +6)", "Increased by Strength" - and 83 x 2 + 20 x 3 - 20 is exactly
+--   206, with the 6 a separate bonus outside the formula. The same tooltip gives the other end of
+--   the conversion: "Every 14 Attack Power adds 1 damage per second".
+--
+-- So Kings is worth 0.2 x strength in attack power, and it would need 5 x the Might rank in
+-- strength to draw level: 125 for rank 2, 305 for rank 4, 665 for rank 7. That bar climbs as fast
+-- as the player does, because Might ranks up with them - which means there is no crossover in
+-- practice at all, not merely a late one. A dungeon-geared 60 carries roughly 300-350 strength
+-- against rank 7's 665. (A crossover at "125 strength" was calculated once during this work by
+-- holding Might frozen at rank 2 while strength grew. It is wrong for that reason, and it is
+-- recorded here so nobody re-derives it: the ranks move.)
+--
+-- That leaves one clean argument instead of two, one of which was false. For a melee class with no
+-- mana, Kings is never about damage: Might simply wins there, at every level, in our gear. Kings is
+-- about the 10% stamina and agility - health, armour, dodge - which is what the source's "Kings
+-- when very well geared" really meant, and it is why a warrior the group has marked TANK gets Kings
+-- from the role rule while everyone else gets Might. The same holds for a rogue, on the
+-- attack-power comparison above rather than on any claim about what agility is worth.
+--
+-- We cannot tell a fury warrior from a protection warrior without an inspect, and guessing a spec
+-- from a weapon is the mistake we already made once by reading a shield as "tank".
+--
+-- A tank is handled by the role rule, not here, and there is no Sanctuary in this game to give one.
+-- The tooltip says "(class default)" wherever this is a guess, so a wrong one is visible and one
+-- click from fixed - and a per-class value the player has chosen always wins over all of it.
 --   kind     what to use once the paladin knows it
---   fallback what to use until then (Kings is level 20, Wisdom 14, Might 4)
+--   fallback what to use until then, best first (Kings is level 20, Wisdom 14, Might 4)
 BW.BLESSING_BY_CLASS = {
-    WARRIOR = { kind = "might",  fallback = "might",  why = "warriors swing, and have no mana" },
-    ROGUE   = { kind = "might",  fallback = "might",  why = "no mana" },
+    WARRIOR = { kind = "might",  fallback = { "might" }, why = "warriors swing, and have no mana" },
+    ROGUE   = { kind = "might",  fallback = { "might" }, why = "no mana" },
     -- Hunters look like an attack-power class and are not, in this client. Blessing of Might is
     -- effect aura 99 (attack power), while Aspect of the Hawk and Trueshot Aura are aura 124
-    -- (RANGED attack power) - two separate stats in 1.60 data, both in use. Might does nothing for a
-    -- hunter's shots, and hunters drink constantly while levelling. Do not "correct" this to Might.
-    HUNTER  = { kind = "wisdom", fallback = "might",  why = "Might is melee only, and hunters burn mana" },
-    SHAMAN  = { kind = "wisdom", fallback = "might",
-                why = "Might does nothing for a healer, Wisdom helps either way (class default)" },
-    PALADIN = { kind = "wisdom", fallback = "might",  why = "paladins cast, whatever they do (class default)" },
-    PRIEST  = { kind = "wisdom", fallback = "might",  why = "they cast from mana" },
-    MAGE    = { kind = "wisdom", fallback = "might",  why = "they cast from mana" },
-    DRUID   = { kind = "wisdom", fallback = "might",
-                why = "druids cast, even feral ones shifting (class default)" },
-    -- The one exception: Life Tap turns health into mana, so mana regen is not a warlock's limit.
-    WARLOCK = { kind = "kings",  fallback = "wisdom", why = "warlocks tap for mana, so Kings beats Wisdom" },
+    -- (RANGED attack power) - two separate stats in 1.60 data, both in use. So Might does nothing
+    -- for a hunter's shots, and chrclasses says why Kings does: RangedAttackPowerPerAgility is 2 for
+    -- a hunter, so 10% agility is the only one of the two blessings that touches a shot at all.
+    -- Not Might, ever.
+    HUNTER  = { kind = "kings",  fallback = { "wisdom", "might" },
+                why = "Might is melee only, so 10% of everything beats it" },
+    MAGE    = { kind = "kings",  fallback = { "wisdom", "might" },
+                why = "never healing, so 10% of every stat beats mana regen (class default)" },
+    -- Life Tap turns health into mana, so mana regen was never a warlock's limit anyway.
+    WARLOCK = { kind = "kings",  fallback = { "wisdom", "might" },
+                why = "warlocks tap for mana, so Kings beats Wisdom" },
+    -- The four that might be holding the group up. Kings gives a healer nothing to spend.
+    -- A shadow priest and a boomkin lose out here, and they are the honest cost of not being able
+    -- to read another player's spec: with an inspect we could tell them apart and give those two
+    -- Kings as well. That is the argument for doing the inspect work, and this table is what makes
+    -- it worth more than it was.
+    PRIEST  = { kind = "wisdom", fallback = { "might" }, why = "priests heal on mana (class default)" },
+    DRUID   = { kind = "wisdom", fallback = { "might" },
+                why = "druids heal on mana, and feral ones pay to shift (class default)" },
+    SHAMAN  = { kind = "wisdom", fallback = { "might" },
+                why = "Kings gives a healer nothing to spend (class default)" },
+    PALADIN = { kind = "wisdom", fallback = { "might" }, why = "paladins heal on mana (class default)" },
 }
 
 -- The order the settings list them in.

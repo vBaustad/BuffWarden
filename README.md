@@ -24,10 +24,11 @@ it. When someone else has it, a click whispers them to ask. When nothing is miss
   buffs warn at a tenth of their duration. The icon shows the time left.
 - **Blessings.** You should carry one Blessing from each paladin in the group. As a paladin you get a row
   with one button per Blessing you know, each showing who the next click will buff and why. The defaults
-  suit a dungeon or levelling group, where drinking is what slows you down: Wisdom for anyone who casts,
-  Might for pure melee, Kings for warlocks (Life Tap pays for their mana). Hunters get
-  Wisdom, not Might: Blessing of Might is melee attack power, which does nothing for a shot. Set it per class
-  or per person in the settings, and once everyone is geared, Kings beats Wisdom. The row appears only when
+  suit a dungeon or levelling group: Kings for anyone with a mana bar who never heals (mage, warlock,
+  hunter), Wisdom for the classes that might be your healer (priest, druid, shaman, paladin), Might for
+  pure melee. Hunters never get Might: in this client Blessing of Might is melee attack power, which does
+  nothing for a shot, while Kings gives them 10% agility. Set it per class or per person in the settings
+  and your choice always wins. The row appears only when
   somebody actually needs a blessing; when it is up, the ones nobody asked for are dimmed, and a click puts
   one on whoever you point at or have targeted - which is how you hand Salvation to the one pulling aggro.
 - **Weapon buffs.** Sharpening stones, weightstones, oils and shaman imbues, with one click to apply the

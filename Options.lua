@@ -159,10 +159,9 @@ local function Layout(parent)
     local CLASS_COL = math.floor(MEASURE_W / 2)   -- 234: label, button, and air before the next one
     function L.BlessingClasses()
         L.Header("Blessing by class")
-        L.Note("The defaults suit a dungeon or levelling group, where drinking is what slows you "
-            .. "down: Wisdom for anyone who casts, Might for pure melee, Kings for warlocks. Once "
-            .. "everyone is geared, Kings beats Wisdom - set it here. One person can still be set "
-            .. "below.")
+        L.Note("The defaults: Kings for anyone with a mana bar who never heals, Wisdom for the "
+            .. "classes that might be your healer, Might for pure melee. Set a class here and every "
+            .. "one of them gets it, whatever we would have picked. One person can still be set below.")
         local rowY = L.y
         for i, class in ipairs(BW.BLESSING_CLASS_ORDER) do
             local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
