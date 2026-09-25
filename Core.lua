@@ -1340,10 +1340,16 @@ function BW:Apply(entries)
     local unlocked = not self.db.locked
     if unlocked then entries = self:BuildPreview() end
 
+    -- The blessing buttons go FIRST, at fixed slots, and the missing-buff icons follow them. It
+    -- used to be the other way round, and that is why the row shifted under the cursor while a
+    -- paladin worked through a group: every buff that got cast removed an icon from the front and
+    -- dragged all the blessing buttons left. One blessing keeps one place for as long as you know
+    -- it - what moves is the name under it and which one is lit.
+    local blessSlots = (not unlocked and BW.blessPlan) and #BW.blessPlan or 0
     for i, e in ipairs(entries) do
         local b = buttons[i] or MakeButton(i)
         b.entry = e
-        PlaceIcon(b, i, bar)
+        PlaceIcon(b, blessSlots + i, bar)
         -- Only push what actually differs: a refresh every few seconds otherwise churns textures
         -- and font strings for nothing.
         if b.shownIcon ~= e.icon then b.shownIcon = e.icon; b.icon:SetTexture(e.icon) end
@@ -1404,9 +1410,7 @@ function BW:Apply(entries)
     end
 
     local n = #entries
-    -- The blessing buttons continue the same run, so they count towards the grid the bar covers.
-    BW.nextSlot = n + 1
-    local total = n + ((not unlocked and BW.blessPlan) and #BW.blessPlan or 0)
+    local total = n + blessSlots
     local w, h = GridSize(total)
     bar:SetWidth(w)
     bar:SetHeight(h)
@@ -1417,8 +1421,7 @@ function BW:Apply(entries)
     bar:SetClampRectInsets(0, 0, 0, -14)
     -- The blessing buttons live in the bar now, so the bar has to stay up for them even when there is
     -- nothing else to show.
-    local blessing = (not unlocked and BW.blessPlan) and #BW.blessPlan or 0
-    bar:SetShown(n > 0 or blessing > 0)
+    bar:SetShown(n > 0 or blessSlots > 0)
 end
 
 -- ---------------------------------------------------------------------------
@@ -1501,10 +1504,13 @@ local function BlessButton(i)
     b:HookScript("OnClick", function(self, _, down)
         if down then return end
         local p, unit = self.plan, self.unit
-        if not (p and unit) then return end
+        if not (p and unit) then return end   -- inert button (nobody in range): nothing was cast
         -- Assume it worked and move on at once, so a paladin can click down the row. A failed cast
         -- takes the mark away again (UNIT_SPELLCAST_FAILED) and that person is tried first next time.
-        local m = p.targets[1]
+        -- The mark goes to whoever the button was aimed at, which is not always the head of the
+        -- queue: the first in range is cast on, and marking targets[1] instead moved the wrong
+        -- person out of the way and left the queue disagreeing with the row.
+        local m = self.target
         if m then justBuffed[m.name] = GetTime() + 2 end
         BW.lastBlessTarget = m and m.name or nil
         if not InCombatLockdown() then BW:Refresh() end
@@ -1526,48 +1532,71 @@ function BW:ApplyBlessRow()
     end
 
     local plan = self.blessPlan or {}
-    local start = self.nextSlot or 1
     for i, p in ipairs(plan) do
         local b = BlessButton(i)
         b.plan = p
-        PlaceIcon(b, start + i - 1, bar)
-        -- Cast on the first one in range, so a click always lands; the count still covers everyone.
-        local target = p.targets[1]
+        PlaceIcon(b, i, bar)          -- slot i, always: see the note in Apply about the row moving
+        -- Who the click will buff: the first one actually in range, so the name under the icon and
+        -- the cast are the same person. Nobody in range means there is nobody to cast on, and the
+        -- button says so and does nothing - see the attributes below.
+        local target, reachable = p.targets[1], false
         for _, m in ipairs(p.targets) do
-            if m.near == "range" and InRange(p.spell, m.unit) then target = m break end
+            if m.near == "range" and InRange(p.spell, m.unit) then target, reachable = m, true break end
         end
-        b.unit = target and target.unit
+        b.target = target                     -- the click marks THIS person, not targets[1]
+        b.unit = (reachable and target) and target.unit or nil
         b.icon:SetTexture(C_Spell.GetSpellTexture(p.spell)
             or "Interface\\Icons\\Spell_Holy_FistOfJustice")
-        b.icon:SetAlpha(p.spare and 0.3 or 1)
+        -- Three states, and the dimming means what it means everywhere else in this addon: there is
+        -- something here, but you cannot act on it right now. 1 = click me, 0.5 = they are too far
+        -- away, 0.3 = nobody's rules ask for this one.
+        b.icon:SetAlpha(p.spare and 0.3 or (reachable and 1 or 0.5))
         b.stale:Hide()
         b.count:SetText(#p.targets > 1 and #p.targets or "")
         b.who:SetShown(self.db.blessNames)
         if self.db.blessNames and target then
-            b.who:SetText(LIB and LIB.ColorName(target.name, target.class) or ShortName(target.name))
+            local who = LIB and LIB.ColorName(target.name, target.class) or ShortName(target.name)
+            -- Out of range: strip the class colour and grey the name, so the row reads at a glance
+            -- without having to hover anything.
+            if not reachable then who = "|cff888888" .. ShortName(target.name) .. "|r" end
+            b.who:SetText(who)
         else
             b.who:SetText("")
         end
-        local action = p.spell .. "|" .. (b.unit or (p.spare and "spare") or "")
+        local action = p.spell .. "|" .. (b.unit or (p.spare and "spare") or "none")
         if b.action ~= action then
             b.action = action
             if p.spare then
                 -- Nobody's rules ask for this one, so there is no name to print and no unit to fix
                 -- in advance. A macro decides at click time instead: point at someone in your party
-                -- frames, or target them, and they get it - otherwise it lands on you. This is the
-                -- "he's pulling aggro" click, and Salvation is why it exists. Macro conditionals are
-                -- read when the button is pressed, so this one attribute works in combat too.
+                -- frames, or target them, and they get it. This is the "he's pulling aggro" click,
+                -- and Salvation is why it exists. Macro conditionals are read when the button is
+                -- pressed, so this one attribute works in combat too.
+                --
+                -- There is deliberately no [@player] at the end. It used to be there, and it is how
+                -- a click meant for a groupmate ended up on the paladin instead: a burnt GCD, mana
+                -- spent, and their own blessing overwritten with one they did not choose. Pointing
+                -- at nobody now casts nothing, and putting one on yourself means targeting yourself.
                 b:SetAttribute("type", "macro")
                 b:SetAttribute("unit", nil)
                 b:SetAttribute("macrotext",
-                    ("/cast [@mouseover,help,nodead][@target,help,nodead][@player] %s"):format(p.spell))
-            else
+                    ("/cast [@mouseover,help,nodead][@target,help,nodead] %s"):format(p.spell))
+            elseif b.unit then
                 -- The rules picked a person, and the name under the icon says who. Keep the unit
                 -- explicit so that name is never a lie: no mouseover override here.
                 b:SetAttribute("type", "spell")
                 b:SetAttribute("macrotext", nil)
                 b:SetAttribute("spell", p.spell)
                 b:SetAttribute("unit", b.unit)
+            else
+                -- People need this one, but none of them is in range. A secure button with no usable
+                -- unit falls back to the caster, which is exactly the clumsy self-buff we are
+                -- removing, so the button is made inert instead: it shows who is waiting, greyed,
+                -- and a click does nothing at all.
+                b:SetAttribute("type", nil)
+                b:SetAttribute("macrotext", nil)
+                b:SetAttribute("spell", nil)
+                b:SetAttribute("unit", nil)
             end
         end
         b:Show()
