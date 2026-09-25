@@ -302,21 +302,31 @@ local function FoodMacro()
     return nil
 end
 
--- Is there food in the bags that would make us Well Fed, and which? AutoFeed is the only one that
--- knows - it classifies buff food while building its macros - and answers one of three things:
--- an itemID, false for "scanned, and there is none", or nil for "no opinion yet".
+-- Food, from AutoFeed, which is the only addon that knows what is in the bags and what the player
+-- has said about it. There are TWO questions and they are not the same one:
 --
--- Only an explicit false hides the icon. nil means we don't know, never "there is none": treating
--- the two the same would blink Well Fed away in the seconds before AutoFeed's first scan, or drop
--- it silently for good if that scan never ran. It is the same rule we use for a secret value.
+--   BuffFood()        what they OWN that would make them Well Fed
+--   EatableBuffFood() what they are WILLING to use (it respects "don't touch buff food" and the
+--                     exclude list)
 --
--- Without AutoFeed installed the answer is nil for ever, so BuffWarden behaves exactly as it did
--- before: we cannot see the bags ourselves, and guessing would be worse than asking.
-local function BuffFood()
+-- Collapsing them is not a tidy-up, it is the bug: a player who was saving buff food for a raid was
+-- told to eat it, because owning some was read as permission to spend it. Owning decides whether the
+-- row is relevant at all; willingness decides whether we may suggest eating. See the three states
+-- where the entry is built.
+--
+-- Both answer the same three ways: an itemID, false for "looked, and there is none", or nil for "no
+-- opinion yet". Only an explicit false is an answer - nil means we don't know, never "there is
+-- none", or Well Fed would blink away in the seconds before AutoFeed's first scan and vanish for
+-- good if that scan never ran. Same rule as a secret value.
+--
+-- An older AutoFeed has no EatableBuffFood, and a missing function answers nil, so it behaves exactly
+-- as it did before this existed. Without AutoFeed at all, both are nil for ever and so does
+-- BuffWarden: we cannot see the bags ourselves, and guessing would be worse than asking.
+local function AskFood(which)
     if not (LIB and LIB.GetData) then return nil end
     local data = LIB.GetData("AutoFeedConsumables")
-    if type(data) ~= "table" or type(data.BuffFood) ~= "function" then return nil end
-    local ok, id = pcall(data.BuffFood)     -- another addon's code: its bug must not break our bar
+    if type(data) ~= "table" or type(data[which]) ~= "function" then return nil end
+    local ok, id = pcall(data[which])       -- another addon's code: its bug must not break our bar
     if not ok then return nil end
     return id
 end
@@ -914,16 +924,24 @@ function BW:Compute()
             local mine = def.class == myClass and FirstKnown(def.cast)
 
             if def.scope == "food" then
-                -- false means AutoFeed looked and there is nothing to eat: no icon at all, since an
-                -- icon you cannot act on is just nagging. nil means nobody knows, so we still show
-                -- it, exactly as before AutoFeed could answer.
-                local food = BuffFood()
-                if not me.unreadable and food ~= false then
+                -- Three states, and the middle one is the whole point:
+                --   owns nothing  -> no icon at all. An icon you cannot act on is just nagging.
+                --   owns and will eat it -> the icon names the food, as before.
+                --   owns but set it aside -> the icon STAYS and says so, without asking them to eat
+                --      it. Hiding it would hide that the buff is missing; suggesting it would spend
+                --      food they are saving. Showing that we know, and leaving the choice with them,
+                --      is the only one of the three that is honest.
+                local owned = AskFood("BuffFood")
+                if not me.unreadable and owned ~= false then
                     local ok, left = HasBuff(me.auras, def.names)
                     if not ok then
+                        local eatable = AskFood("EatableBuffFood")
                         entries[#entries + 1] = { key = def.key, def = def, mode = "food",
                             spell = "Well Fed", macro = FoodMacro(), expiring = left,
-                            food = food or nil, reachable = true }
+                            food = eatable or nil,
+                            -- owns some, willing to use none: say so rather than nag
+                            setAside = (eatable == false and owned and owned ~= false) or nil,
+                            reachable = true }
                     end
                 end
 
@@ -1168,7 +1186,16 @@ local function ButtonOnEnter(self)
     if e.mode == "food" then
         GameTooltip:AddLine(e.expiring and "Running out on you." or "You're not Well Fed.", 1, 1, 1)
         local foodName = e.food and C_Item.GetItemNameByID and C_Item.GetItemNameByID(e.food)
-        if e.macro then
+        if e.setAside then
+            -- They own food that would do it and have told AutoFeed to leave it alone. Say both
+            -- halves: the buff is available, and we are not going to spend their raid food for them.
+            GameTooltip:AddLine("You have food for this, but it's set aside in AutoFeed.",
+                0.6, 0.6, 0.6, true)
+            if e.macro then
+                GameTooltip:AddLine("Click: eat your best food (AutoFeed's " .. e.macro .. " macro)",
+                    0.4, 1, 0.4)
+            end
+        elseif e.macro then
             GameTooltip:AddLine("Click: eat your best food (AutoFeed's " .. e.macro .. " macro)", 0.4, 1, 0.4)
         elseif foodName then
             GameTooltip:AddLine("Eat your " .. foodName .. ".", 0.6, 0.6, 0.6, true)
