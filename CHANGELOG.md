@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Fixed: groupmates you were standing next to were reported as too far away**, which also made their blessing button unclickable. The game's range check answers three things - yes, no, and "I did not check" - and on this client the answer can also come back hidden from addons. BuffWarden was reading anything that was not a clear yes as a no. It now only treats somebody as out of reach when the game actually says so; when nothing can be measured, you get the benefit of the doubt and the button works.
+- `/bwarden debug` now prints the range evidence for each groupmate - what the range check answered, whether a position could be read, and the conclusion - so a wrong verdict can be traced to which source went quiet.
 - **The blessing buttons stop moving.** Each blessing now keeps one place in the row for as long as you know it. They used to sit after the missing-buff icons, so every buff you cast removed an icon and dragged the whole row left under your cursor. What moves now is the name under the button and which one is lit.
 - **Every blessing button casts on whoever it shows** - including you. A dimmed blessing nobody needs now says "you" underneath and lands on you when clicked, or on whoever you are pointing at or have targeted. The only button that does nothing is one whose person is out of range, and its tooltip says so rather than leaving you clicking a dead icon.
 - **Fixed the gold squares.** A button is a coloured plate with the icon sitting on top of it - that plate is what gives it its border. Dimming was being applied to the icon alone, so the plate stayed bright and a dimmed button turned into a solid gold square. Whole buttons fade now, so a dimmed blessing looks dim.

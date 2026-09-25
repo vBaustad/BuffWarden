@@ -201,7 +201,16 @@ end
 
 -- How reachable is a groupmate? "range" = inside helpful spell range, "near" = further off but around
 -- (worth showing, they can walk over), "far" = another zone or a long way off (left out entirely).
--- UnitInRange can be a secret value in instances, so it is cleaned and UnitIsVisible is the fallback.
+--
+-- The hard part is that we often cannot find out. UnitInRange is documented with SecretReturns on this
+-- client, so its answer can come back as a secret value that Clean turns into nil, and it returns TWO
+-- things: whether the unit is in range, and whether it checked at all. A false first value means
+-- nothing when the second one says it did not look.
+--
+-- So there are three answers, not two, and the third must never be read as the second: yes, no, and
+-- "we don't know". A paladin standing on top of his party was told they were too far away because we
+-- collapsed "don't know" into "no" - the same mistake we have now made three times in this addon in
+-- one day, which is why the rule is written at every site that can produce it.
 local FAR_OUT, FAR_IN, FAR_DELAY = 200, 150, 10   -- yards out, yards back in, seconds before dropping
 local farSince = {}                                -- [name] = when it first looked far
 
@@ -220,18 +229,30 @@ end
 
 local function Nearness(unit, name)
     if UnitIsUnit(unit, "player") then return "range" end
-    local inRange = Clean(UnitInRange(unit))
-    if inRange == true then farSince[name] = nil return "range" end
 
-    -- Not in cast range: is it a short walk, or another part of the world?
+    -- Both return values, and both cleaned: we have an answer only if the client says it checked and
+    -- the result itself survived.
+    local inRange, checked = UnitInRange(unit)
+    inRange, checked = Clean(inRange), Clean(checked)
+    local answered = (checked == true) and (inRange ~= nil)
+    if answered and inRange then farSince[name] = nil return "range" end
+
+    -- Either it said no, or it said nothing. Distance is the only other evidence.
     local far
     local yards, otherMap = Yards(unit)
     if yards then
         far = yards > (farSince[name] and FAR_IN or FAR_OUT)
     elseif otherMap then
         far = true                       -- position unreadable but a different map: another zone
-    else
+    elseif answered then
         far = not Clean(UnitIsVisible(unit))
+    else
+        -- Nothing answered at all: no usable range check and no position to measure. Give the doubt
+        -- to the player, exactly as InRange does for the spell itself - a button that might fail is
+        -- worth more than one that is greyed out for no reason. Anyone genuinely far away will be
+        -- caught the moment either source starts answering.
+        farSince[name] = nil
+        return "range"
     end
 
     if not far then farSince[name] = nil return "near" end
@@ -2009,6 +2030,23 @@ SlashCmdList.BUFFWARDEN = function(msg)
             or "|cffff5555nothing read|r - C_ClassTalents.GetActiveConfigID() gave "
                 .. tostring(C_ClassTalents and C_ClassTalents.GetActiveConfigID
                     and C_ClassTalents.GetActiveConfigID())))
+        -- Range, per groupmate, showing the EVIDENCE and not just the verdict. Both of the sources
+        -- this rests on can decline to answer on this client - UnitInRange is documented with
+        -- SecretReturns, and a position needs GetBestMapForUnit to work for somebody else - and when
+        -- both stay quiet the addon has to guess. This is how to find out which of them is talking.
+        for i = 0, 4 do
+            local u = (i == 0) and "player" or ("party" .. i)
+            if UnitExists(u) then
+                local inRange, checked = UnitInRange(u)
+                local yards, otherMap = Yards(u)
+                print(("  range %s (%s): UnitInRange=%s/%s  yards=%s%s  -> %s"):format(
+                    u, GetUnitName(u, true) or "?",
+                    tostring(Clean(inRange)), tostring(Clean(checked)),
+                    yards and ("%.0f"):format(yards) or "|cffff5555no position|r",
+                    otherMap and " (another map)" or "",
+                    Nearness(u, GetUnitName(u, true) or u)))
+            end
+        end
         local plan = BW.blessPlan
         print(("  blessing row: %s, %d button(s)"):format(tostring(db.blessRow),
             plan and #plan or 0))
