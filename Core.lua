@@ -1313,7 +1313,7 @@ function BW:SetStale(stale)
     if blessButtons then
         for _, b in ipairs(blessButtons) do
             b.stale:SetShown(stale and b:IsShown())
-            b.icon:SetAlpha(stale and 0.55 or 1)
+            b:SetAlpha(stale and 0.55 or 1)
         end
     end
     self.stale = stale and true or nil
@@ -1321,8 +1321,8 @@ function BW:SetStale(stale)
         b.stale:SetShown(stale and b.entry ~= nil and not b.entry.preview)
         local reachable = not (b.entry and b.entry.reachable == false)
         b.shownAlpha = stale and 0.55 or (reachable and 1 or 0.6)
-        b.icon:SetAlpha(b.shownAlpha)
-        b.border:SetAlpha(stale and 0.5 or 1)
+        b:SetAlpha(b.shownAlpha)
+        b.icon:SetAlpha(1)
     end
 end
 
@@ -1356,7 +1356,7 @@ function BW:Apply(entries)
         local desat = e.mode == "ask"
         if b.shownDesat ~= desat then b.shownDesat = desat; b.icon:SetDesaturated(desat) end
         local alpha = (e.reachable == false) and 0.6 or 1
-        if b.shownAlpha ~= alpha then b.shownAlpha = alpha; b.icon:SetAlpha(alpha) end
+        if b.shownAlpha ~= alpha then b.shownAlpha = alpha; b:SetAlpha(alpha) end
         -- A weapon buff keeps its purple, the way the game shows it; the countdown turns orange instead.
         -- COLORS.cast as the last resort: a mode without its own colour must never break the bar.
         local c = (e.mode == "weapon" and COLORS.weapon) or (e.expiring and COLORS.expiring)
@@ -1487,6 +1487,9 @@ local function BlessButton(i)
     b:SetMotionScriptsWhileDisabled(true)
     b:SetHitRectInsets(0, 0, 0, 0)
 
+    -- Gold plate behind the icon: the two pixels that stick out are the button's border. Anything
+    -- that dims this button has to dim the BUTTON (b:SetAlpha), never just b.icon, or the plate stays
+    -- bright and the button reads as a solid gold square.
     b.border = b:CreateTexture(nil, "BACKGROUND")
     b.border:SetAllPoints()
     b.border:SetColorTexture(1, 1, 1)
@@ -1536,7 +1539,7 @@ function BW:ApplyBlessRow()
     if InCombatLockdown() then
         for _, b in ipairs(blessButtons) do
             b.stale:SetShown(b:IsShown())
-            b.icon:SetAlpha(0.55)
+            b:SetAlpha(0.55)
         end
         return
     end
@@ -1558,9 +1561,11 @@ function BW:ApplyBlessRow()
         b.icon:SetTexture(C_Spell.GetSpellTexture(p.spell)
             or "Interface\\Icons\\Spell_Holy_FistOfJustice")
         -- Three states, and the dimming means what it means everywhere else in this addon: there is
-        -- something here, but you cannot act on it right now. 1 = click me, 0.5 = they are too far
-        -- away, 0.3 = nobody's rules ask for this one.
-        b.icon:SetAlpha(p.spare and 0.3 or (reachable and 1 or 0.5))
+        -- something here, but you cannot act on it right now. 1 = click me, 0.55 = they are too far
+        -- away, 0.4 = nobody's rules ask for this one. On the whole button, so the gold plate behind
+        -- the icon fades with it.
+        b:SetAlpha(p.spare and 0.4 or (reachable and 1 or 0.55))
+        b.icon:SetAlpha(1)
         b.stale:Hide()
         b.count:SetText(#p.targets > 1 and #p.targets or "")
         b.who:SetShown(self.db.blessNames)
