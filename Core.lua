@@ -746,38 +746,22 @@ end
 -- asks only about our own blessing: is a blessing we cast on them, or - when the game won't say who cast
 -- it - is the very spell we would cast already there? (Only then do we leave it alone; anything else is
 -- someone else's blessing and ours is still missing.)
--- OPEN QUESTION, and the one that could make BuffWarden give harmful advice: BW.BLESSING_NAMES does
--- not include Blessing of Sacrifice. Forever has added it (trained at 46 and 54, paladin class set),
--- and if it occupies the one-blessing-per-paladin slot the way Might and Wisdom do, then this
--- function reads a target carrying a deliberate Sacrifice as missing our blessing - and BuffWarden
--- tells the paladin to re-bless, overwriting it mid-fight.
+-- Sacrifice, Freedom and Protection take the one-per-paladin slot too, so a target carrying one is
+-- NOT missing our blessing, and we must never offer to overwrite it. See BLESSING_SITUATIONAL in
+-- Data.lua for how that was settled and why their short durations need the exemption below: the
+-- ordinary expiring test calls a 30-second aura expiring the moment it lands, so listing the names
+-- without this would have changed nothing.
 --
--- The client data does not settle it, and two rounds of digging only narrowed it:
---   * spellcategories.Category is NOT the mechanism. The six stat blessings all have Category 0, and
---     there is no row 0 in spellcategory - it means "no category", so it cannot group them. The
---     non-zero ones say what the field is for: 25 is "Quick Heal - Spell", 20 is "Invulnerability
---     (Other)", which is why Protection has one.
---   * Two markers group all eight blessings, Sacrifice included: SpellClassMask[0] bit 28, and
---     spelllabel LabelID 26.
---   * The one bit that separates Sacrifice - SpellClassMask[2] bit 16 - also separates every GREATER
---     blessing, and those certainly do occupy the slot. So it cannot mean "takes the slot".
--- Reading it out, the evidence leans towards Sacrifice sharing the slot, i.e. towards the guard being
--- needed. Nothing is built on a lean.
---
--- THE MEASUREMENT, ten seconds: one paladin, one target, cast Wisdom then Sacrifice on them and look
--- at their buffs. Both present -> separate slots, delete this comment and do nothing. Wisdom gone ->
--- it shares the slot, and the fix is below.
---
--- THE FIX, when the answer comes: Sacrifice has to count as "our blessing is on them". Adding the
--- name to BW.BLESSING_NAMES is necessary but NOT sufficient - it lasts around 30 seconds, and
--- Expiring() with no `short` argument warns at max(60, dur/10), so a 30-second aura reads as expiring
--- the moment it lands and this function would skip it anyway. It needs the short-buff treatment
--- (a `short` table like Battle Shout's) or an exemption here, or the guard silently does nothing.
+-- Worth remembering how long we failed to find this: the rule is written in plain words in the spell
+-- description the game shows the player, and we spent two rounds looking for it in spellcategories,
+-- spellclassoptions and spelllabel instead. Description text is data too.
 local function HasMyBlessing(m, mySpell)
     if m.unreadable then return true end
     for _, n in ipairs(BW.BLESSING_NAMES) do
         local a = m.auras[n]
-        if a and not Expiring(a) then
+        -- A situational blessing counts while it is simply there; only the ones we keep up get the
+        -- "running out soon" test, or a Sacrifice would read as expiring from the moment it lands.
+        if a and (BW.BLESSING_SITUATIONAL[n] or not Expiring(a)) then
             if a.source and UnitIsUnit(a.source, "player") then return true end
             if not a.source and n == mySpell then return true end
         end
@@ -791,7 +775,8 @@ local function BlessingsFromOthers(m, mySpell)
     local count, from = 0, {}
     for _, n in ipairs(BW.BLESSING_NAMES) do
         local a = m.auras[n]
-        if a and not Expiring(a) then
+        -- Same rule as HasMyBlessing: another paladin's Sacrifice is their slot spent on us.
+        if a and (BW.BLESSING_SITUATIONAL[n] or not Expiring(a)) then
             local mine = (a.source and UnitIsUnit(a.source, "player")) or (not a.source and n == mySpell)
             if not mine then
                 count = count + 1

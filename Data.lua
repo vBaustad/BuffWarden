@@ -40,6 +40,28 @@ local BLESSINGS = {
     "Blessing of Salvation", "Blessing of Light",
     "Greater Blessing of Might", "Greater Blessing of Wisdom", "Greater Blessing of Kings",
     "Greater Blessing of Salvation", "Greater Blessing of Light",
+    -- These three take the slot as well, and they are here so we never offer to overwrite one.
+    "Blessing of Sacrifice", "Blessing of Freedom", "Blessing of Protection",
+}
+
+-- Which blessings are cast for a moment rather than kept up. All of them occupy the same
+-- one-per-paladin slot - the client says so itself, in the spell description it shows the player:
+-- "Players may only have one Blessing on them per Paladin at any one time" appears verbatim on
+-- Might, Wisdom, Kings, Salvation, Light, Freedom, Protection AND Sacrifice, on every player rank,
+-- and on none of the 20-odd unrelated "Blessing of ..." spells in the game. But the durations split
+-- them in two: the maintenance blessings all last 3600 seconds, while Protection is 6-10, Freedom is
+-- 10 and Sacrifice is 30.
+--
+-- That difference is why they need their own list rather than just being added above. The ordinary
+-- "running out soon" test warns at max(60, duration/10), so a 30-second aura is expiring from the
+-- instant it lands - and HasMyBlessing skips anything expiring. Putting Sacrifice in the names list
+-- alone would therefore have changed nothing at all, and BuffWarden would still have told a paladin
+-- to re-bless over a Sacrifice they cast on purpose. While one of these is up, our blessing IS on
+-- that person; when it falls off, the normal one is suggested again.
+BW.BLESSING_SITUATIONAL = {
+    ["Blessing of Sacrifice"] = true,
+    ["Blessing of Freedom"] = true,
+    ["Blessing of Protection"] = true,
 }
 BW.BLESSING_NAMES = BLESSINGS
 
