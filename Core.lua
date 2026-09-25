@@ -2161,6 +2161,18 @@ function BW.SelfTest()
     end
     if me.spec then note("%s %d", me.spec.name, me.spec.points) end
 
+    -- AutoFeed's two food answers have to come from one bag. EatableBuffFood is what the player will
+    -- SPEND and BuffFood is what they OWN, so the first can never say yes where the second says no -
+    -- that would mean the willing answer is looking at food the owning answer cannot see. It changes
+    -- no behaviour here (a false "owns" hides the row before we ever ask the other), so this is a
+    -- canary on the contract between the two addons, and it names AutoFeed because that is whose
+    -- inventory disagreed with itself.
+    local owns, willing = AskFood("BuffFood"), AskFood("EatableBuffFood")
+    if owns == false and type(willing) == "number" then
+        return false, ("AutoFeed says there is no buff food but offers item %d to eat"):format(willing)
+    end
+    note("food owns=%s willing=%s", tostring(owns), tostring(willing))
+
     -- Weapon enchants: item state, so this is the one read that works whatever else is restricted.
     local weapons = 0
     for _, w in ipairs(WEAPON_SLOTS) do
