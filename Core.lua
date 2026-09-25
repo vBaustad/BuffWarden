@@ -1437,7 +1437,17 @@ local function BlessTooltip(self)
     end
     if p.spare then
         GameTooltip:AddLine("Nobody needs this one by the rules.", 1, 1, 1)
-        GameTooltip:AddLine("Click: whoever you point at or have targeted, else you.", 0.4, 1, 0.4)
+        GameTooltip:AddLine("Click: whoever you point at or have targeted, else yourself.", 0.4, 1, 0.4)
+        GameTooltip:Show()
+        return
+    end
+    -- Nobody in the queue is close enough: say it, because the icon dimming alone leaves a player
+    -- clicking a button that cannot do anything and wondering which of them is broken.
+    if not self.unit then
+        local who = p.targets[1]
+        GameTooltip:AddLine(("%s needs this, and is too far away to cast on."):format(
+            who and ShortName(who.name) or "Someone"), 1, 0.5, 0.5, true)
+        GameTooltip:AddLine("Nothing happens until they are in range.", 0.6, 0.6, 0.6, true)
         GameTooltip:Show()
         return
     end
@@ -1554,7 +1564,14 @@ function BW:ApplyBlessRow()
         b.stale:Hide()
         b.count:SetText(#p.targets > 1 and #p.targets or "")
         b.who:SetShown(self.db.blessNames)
-        if self.db.blessNames and target then
+        if not self.db.blessNames then
+            b.who:SetText("")
+        elseif p.spare then
+            -- Nobody the rules track wants this one, so the person it will land on is you. Say so,
+            -- in grey because it is an offer rather than advice: a button that shows who it hits is
+            -- never a surprise, and one that shows nobody is a dead click.
+            b.who:SetText("|cff888888you|r")
+        elseif target then
             local who = LIB and LIB.ColorName(target.name, target.class) or ShortName(target.name)
             -- Out of range: strip the class colour and grey the name, so the row reads at a glance
             -- without having to hover anything.
@@ -1573,14 +1590,20 @@ function BW:ApplyBlessRow()
                 -- and Salvation is why it exists. Macro conditionals are read when the button is
                 -- pressed, so this one attribute works in combat too.
                 --
-                -- There is deliberately no [@player] at the end. It used to be there, and it is how
-                -- a click meant for a groupmate ended up on the paladin instead: a burnt GCD, mana
-                -- spent, and their own blessing overwritten with one they did not choose. Pointing
-                -- at nobody now casts nothing, and putting one on yourself means targeting yourself.
+                -- [@player] is the LAST clause and it is the target, not a fallback: the name under
+                -- the button says "you", so a click doing what the button says is the whole point.
+                --
+                -- Removing it once was a mistake worth remembering. The real bug then was not that
+                -- [@player] existed - it was that a button could quietly TURN INTO a spare under the
+                -- cursor, while the whole row also slid sideways as icons came and went, so a click
+                -- aimed at a groupmate landed on the paladin. Both of those are fixed: the buttons
+                -- keep their places, and a spare says whose blessing it is about to be. Taking the
+                -- clause away instead left a paladin unable to buff himself at all, which is the
+                -- first thing a paladin does.
                 b:SetAttribute("type", "macro")
                 b:SetAttribute("unit", nil)
                 b:SetAttribute("macrotext",
-                    ("/cast [@mouseover,help,nodead][@target,help,nodead] %s"):format(p.spell))
+                    ("/cast [@mouseover,help,nodead][@target,help,nodead][@player] %s"):format(p.spell))
             elseif b.unit then
                 -- The rules picked a person, and the name under the icon says who. Keep the unit
                 -- explicit so that name is never a lie: no mouseover override here.
