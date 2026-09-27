@@ -205,7 +205,12 @@ local function Layout(parent)
         for i = 1, 5 do
             local label = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
             label:SetPoint("TOPLEFT", PAD, L.y - 4)
+            -- 150 px holds "Firstname Surname" in this font with room to spare, which is the point:
+            -- the page has space, so it prints the whole name, unlike the row under the icons. No
+            -- wrapping, so a name longer than anything we can think of clips instead of growing a
+            -- second line and sitting on top of the next groupmate.
             label:SetWidth(150)
+            label:SetWordWrap(false)
             label:SetJustifyH("LEFT")
             local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
             btn:SetSize(300, 22)

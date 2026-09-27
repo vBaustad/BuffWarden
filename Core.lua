@@ -257,6 +257,41 @@ local function ShortName(full)
     return (full or "?"):match("^[^-]+") or full
 end
 
+-- The first character of a string, not the first byte: a surname starting with "Ø" is two bytes, and
+-- cutting it in half prints a broken glyph.
+local function FirstChar(s)
+    local b = s and s:byte(1)
+    if not b then return nil end
+    local n = (b >= 0xF0 and 4) or (b >= 0xE0 and 3) or (b >= 0xC0 and 2) or 1
+    return s:sub(1, n)
+end
+
+-- A name for the 44-pixel slot under a 36-pixel button. Every Forever name is two words now, and two
+-- words do not fit: "Duplo Bonk" clips to "Duplo...", which is precisely the prefix it shares with
+-- Duplo Lasse in the same guild - so the clip threw away the one thing the surname was there to tell
+-- you. An initial costs the same width and keeps the distinction: "Duplo B.".
+--
+-- Only for the row. Anywhere with room - every tooltip, the settings page - prints the whole name, and
+-- LIB.ShortName still decides whether there is a surname to print at all, since the client has its own
+-- setting for that and it is not ours to overrule.
+local function TightName(full)
+    local short = ShortName(full)
+    local first, rest = short:match("^(%S+)%s+(%S.*)$")
+    local initial = rest and FirstChar(rest)
+    if first and initial then return first .. " " .. initial .. "." end
+    return short   -- one word already, or the surname is hidden: nothing to shorten
+end
+
+-- Who a row button is about, the way the row says it everywhere: "you" for yourself, an abbreviated
+-- name for anyone else, in their class colour either way. The player used to be written two different
+-- ways on one row - a spare said "you" while the button next to it spelled out the character name -
+-- which is what made a paladin read his own row as naming three different people.
+local function RowName(m)
+    local text = m.isMe and "you" or TightName(m.name)
+    if LIB and LIB.ClassColor then return "|c" .. LIB.ClassColor(m.class) .. text .. "|r" end
+    return text
+end
+
 local function FmtTime(s)
     if s >= 60 then return ("%dm"):format(math.floor(s / 60 + 0.5)) end
     return ("%ds"):format(math.floor(s))
@@ -895,8 +930,8 @@ local function BlessingPlan(members)
             plan[#plan + 1] = {
                 kind = kind, spell = spell, targets = list,
                 -- Once the row is up you get every blessing you know, so you can always overrule the
-                -- rules by hand. This one nobody asked for: dimmed, no count, no name, and a click
-                -- puts it on whoever you point at.
+                -- rules by hand. This one nobody asked for: dimmed, no count, "spare" where a name
+                -- would go, and a click puts it on whoever you point at.
                 spare = #list == 0,
             }
         end
@@ -1209,7 +1244,10 @@ local function ButtonOnEnter(self)
                 GameTooltip:AddLine("  " .. (LIB and LIB.ColorName(m.name, m.class) or m.name))
             end
         end
-        GameTooltip:AddLine("Click: cast on " .. (e.target.isMe and "yourself" or e.target.name), 0.4, 1, 0.4)
+        -- ShortName, not the stored name: what we store is "Name-Realm" and the realm belongs in a
+        -- whisper, not in a sentence about who to click on.
+        GameTooltip:AddLine("Click: cast on "
+            .. (e.target.isMe and "yourself" or ShortName(e.target.name)), 0.4, 1, 0.4)
         if e.why then
             GameTooltip:AddLine(e.spell:gsub("^Blessing of ", "") .. " - " .. e.why, 0.7, 0.7, 0.8, true)
         end
@@ -1221,7 +1259,8 @@ local function ButtonOnEnter(self)
             GameTooltip:AddLine("  " .. (LIB and LIB.ColorName(n, c) or n))
         end
         if e.providers[1] then
-            GameTooltip:AddLine("Click: whisper " .. (GetUnitName(e.providers[1], true) or "?") .. " to ask",
+            GameTooltip:AddLine("Click: whisper "
+                .. ShortName(GetUnitName(e.providers[1], true) or "?") .. " to ask",
                 0.4, 1, 0.4)
         end
     end
@@ -1472,7 +1511,9 @@ local function BlessTooltip(self)
     local first = p.targets[1]
     if first then
         local lvl = Clean(UnitLevel(first.unit))
-        GameTooltip:AddLine(("Next: %s%s%s"):format(LIB and LIB.ColorName(first.name, first.class) or first.name,
+        -- "you", not the character name, for the same reason the row says it: one person, one name.
+        GameTooltip:AddLine(("Next: %s%s%s"):format(
+            first.isMe and "you" or (LIB and LIB.ColorName(first.name, first.class) or first.name),
             lvl and lvl > 0 and (" - " .. lvl) or "", first.class and (" " .. first.class:lower()) or ""), 1, 1, 1)
         if first.why then GameTooltip:AddLine(p.spell:gsub("^Blessing of ", "") .. " - " .. first.why,
             0.7, 0.7, 0.8, true) end
@@ -1587,12 +1628,18 @@ function BW:ApplyBlessRow()
         if not self.db.blessNames then
             b.who:SetText("")
         elseif p.spare then
-            -- Nobody the rules track wants this one, so the person it will land on is you. Say so,
-            -- in grey because it is an offer rather than advice: a button that shows who it hits is
-            -- never a surprise, and one that shows nobody is a dead click.
-            b.who:SetText("|cff888888you|r")
+            -- This slot answers one question on every other button - who needs this one - so it has to
+            -- answer the same question here, and the answer is nobody. It used to say "you", meaning
+            -- "a click lands on you", and that is a different question: the user read it as advice,
+            -- because advice is what this slot means everywhere else, while the tooltip was saying
+            -- "nobody needs this one" at the same moment. Two spares side by side both said "you",
+            -- which reads as two blessings on yourself - something the one-per-paladin slot forbids.
+            --
+            -- "spare" is not a name, so it cannot be misread as either. Where a click actually lands
+            -- is still written down, in the tooltip, which is where the rest of the mechanism lives.
+            b.who:SetText("|cff888888spare|r")
         elseif target then
-            b.who:SetText(LIB and LIB.ColorName(target.name, target.class) or ShortName(target.name))
+            b.who:SetText(RowName(target))
         else
             b.who:SetText("")
         end
