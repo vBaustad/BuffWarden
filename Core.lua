@@ -1421,6 +1421,17 @@ function BW:CreateBar()
     bar.blessWho = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     bar.blessWho:SetWordWrap(false)
     bar.blessWho:SetJustifyH("CENTER")
+    -- This line sits on the world, not on a panel, so it has to be readable over grass, stone, snow
+    -- and a lit spell effect alike. An outline does most of that and a shadow catches the rest;
+    -- plain text on a bright background is what the player could not read.
+    --
+    -- The font comes from the template rather than being named here, so the size and family stay
+    -- whatever GameFontHighlight is, and only the outline is ours. Both values have to be there:
+    -- SetFont with a nil size is an error in the client.
+    local font, size = bar.blessWho:GetFont()
+    if font and size then bar.blessWho:SetFont(font, size, "OUTLINE") end
+    bar.blessWho:SetShadowColor(0, 0, 0, 1)
+    bar.blessWho:SetShadowOffset(1, -1)
     bar.blessWho:Hide()
     bar:SetClampedToScreen(true)
     bar:SetScale(self.db.scale)
@@ -1780,7 +1791,9 @@ function BW:ApplyBlessRow()
             bar.blessWho:SetPoint("TOP", bar, "TOPLEFT", paletteW / 2,
                 -((rows - 1) * ROW_H + SIZE) - 1)
             local label = (BW.BLESSING_LABEL[nextKind] or nextKind):gsub("^Blessing of ", "")
-            bar.blessWho:SetText(("%s |cff888888%s|r"):format(RowName(nextWho), label))
+            -- Lighter than the grey used inside tooltips: the same 888888 that reads as "secondary"
+            -- on a dark tooltip background is nearly invisible on open ground.
+            bar.blessWho:SetText(("%s |cffc8c8c8%s|r"):format(RowName(nextWho), label))
             bar.blessWho:Show()
         else
             bar.blessWho:SetText("")
