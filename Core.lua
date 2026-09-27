@@ -1159,19 +1159,35 @@ end
 local SIZE, GAP = 36, 4
 local ROW_H = SIZE + 14 + GAP   -- a row is an icon plus the line of text under it
 
--- Where icon number `index` goes, counting the bar's icons and the blessing buttons as one run, so
--- they read as a single row (and wrap together when there are more than the player allows per line).
-local function PlaceIcon(frame, index, anchor)
-    local perRow = math.max(2, BW.db and BW.db.perRow or 12)
-    local col, row = (index - 1) % perRow, math.floor((index - 1) / perRow)
+local function PerRow()
+    return math.max(2, BW.db and BW.db.perRow or 12)
+end
+
+-- The blessing palette and the missing-buff icons are two different kinds of thing, so they get two
+-- different rows. They used to share one run and read as a single line, which put a palette you
+-- mostly do not act on right next to the reminders you do: a paladin who had just blessed himself
+-- read his own palette as five buffs that had failed to go away. Splitting them also means the
+-- reminders stop sliding sideways when the palette changes width, which is the same stability the
+-- row itself was asked for.
+--
+-- `rowOffset` is how many rows the group above this one took.
+local function PlaceIcon(frame, index, anchor, rowOffset)
+    local perRow = PerRow()
+    local col = (index - 1) % perRow
+    local row = math.floor((index - 1) / perRow) + (rowOffset or 0)
     frame:ClearAllPoints()
     frame:SetPoint("TOPLEFT", anchor, "TOPLEFT", col * (SIZE + GAP), -row * ROW_H)
 end
 
-local function GridSize(count)
-    local perRow = math.max(2, BW.db and BW.db.perRow or 12)
-    local cols = math.min(perRow, math.max(1, count))
-    local rows = math.max(1, math.ceil(math.max(1, count) / perRow))
+local function RowsFor(count)
+    return math.ceil(math.max(0, count) / PerRow())
+end
+
+-- Wide enough for whichever group is widest, tall enough for both stacked.
+local function BarSize(blessSlots, n)
+    local perRow = PerRow()
+    local cols = math.max(1, math.min(perRow, math.max(blessSlots, n)))
+    local rows = math.max(1, RowsFor(blessSlots) + RowsFor(n))
     return cols * (SIZE + GAP) - GAP, rows * ROW_H - GAP
 end
 local holder, bar, handle
@@ -1334,9 +1350,7 @@ function BW:CreateBar()
     -- bar's bottom rather than to a button, so it stays put whether the icons wrap onto a second row
     -- or the row is a single button wide - and it is allowed to be wider than the bar itself, which is
     -- the entire reason it exists.
-    bar.blessWho = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    bar.blessWho:SetPoint("TOP", bar, "BOTTOM", 0, -2)
-    bar.blessWho:SetWidth(220)
+    bar.blessWho = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     bar.blessWho:SetWordWrap(false)
     bar.blessWho:SetJustifyH("CENTER")
     bar.blessWho:Hide()
@@ -1432,7 +1446,7 @@ function BW:Apply(entries)
     for i, e in ipairs(entries) do
         local b = buttons[i] or MakeButton(i)
         b.entry = e
-        PlaceIcon(b, blessSlots + i, bar)
+        PlaceIcon(b, i, bar, RowsFor(blessSlots))
         -- Only push what actually differs: a refresh every few seconds otherwise churns textures
         -- and font strings for nothing.
         if b.shownIcon ~= e.icon then b.shownIcon = e.icon; b.icon:SetTexture(e.icon) end
@@ -1494,15 +1508,14 @@ function BW:Apply(entries)
     end
 
     local n = #entries
-    local total = n + blessSlots
-    local w, h = GridSize(total)
+    local w, h = BarSize(blessSlots, n)
     bar:SetWidth(w)
     bar:SetHeight(h)
     handle:SetShown(unlocked)
     bar:EnableMouse(unlocked)
     -- The countdown sits under the icons, so keep that line on screen too (a negative bottom inset
     -- grows the area the bar is clamped inside).
-    bar:SetClampRectInsets(0, 0, 0, -28)
+    bar:SetClampRectInsets(0, 0, 0, -14)
     -- The blessing buttons live in the bar now, so the bar has to stay up for them even when there is
     -- nothing else to show.
     bar:SetShown(n > 0 or blessSlots > 0)
@@ -1662,6 +1675,14 @@ function BW:ApplyBlessRow()
     end
     if bar.blessWho then
         if self.db.blessNames and nextWho then
+            -- Directly under the palette's last row of icons, and centred on the palette rather than
+            -- on the bar, so it stays attached to the buttons it is talking about however many
+            -- missing-buff icons happen to be showing below.
+            local rows = math.max(1, RowsFor(#plan))
+            bar.blessWho:ClearAllPoints()
+            bar.blessWho:SetPoint("TOPLEFT", bar, "TOPLEFT", 0,
+                -((rows - 1) * ROW_H + SIZE) - 1)
+            bar.blessWho:SetWidth(math.max(140, math.min(PerRow(), #plan) * (SIZE + GAP) - GAP))
             local label = (BW.BLESSING_LABEL[nextKind] or nextKind):gsub("^Blessing of ", "")
             bar.blessWho:SetText(("%s |cff888888%s|r"):format(RowName(nextWho), label))
             bar.blessWho:Show()
@@ -1683,11 +1704,14 @@ function BW:ApplyBlessRow()
         b.unit = target and target.unit or nil
         b.icon:SetTexture(C_Spell.GetSpellTexture(p.spell)
             or "Interface\\Icons\\Spell_Holy_FistOfJustice")
-        -- Two states now. 0.4 = nobody's rules ask for this one; 1 = somebody does. Distance is not
-        -- one of them: it used to dim to 0.55 for "too far away", which was a claim we could not back
-        -- up. On the whole button, so the gold plate behind the icon fades with it.
+        -- Two states, and a spare has to be unmistakable rather than just faint: a dim icon still
+        -- reads as a buff that would not come off, which is exactly how the palette was misread. So a
+        -- spare loses its colour as well - the bar already says "someone else's to cast" that way.
+        -- Distance is not a state here; it used to dim to 0.55 for "too far away", which was a claim
+        -- we could not back up. Alpha on the whole button, so the plate behind the icon fades too.
         b:SetAlpha(p.spare and 0.4 or 1)
         b.icon:SetAlpha(1)
+        b.icon:SetDesaturated(p.spare and true or false)
         b.stale:Hide()
         b.count:SetText(#p.targets > 1 and #p.targets or "")
         -- Three clicks, one button. The client picks between them when you press it, not when we set
@@ -1816,7 +1840,8 @@ function BW:UpdateWeaponReadout()
         end
     end
     for i = shown + 1, #readoutRows do readoutRows[i]:Hide() end
-    readout:SetWidth((GridSize(shown)))
+    -- One group, one row: the same width the bar would give that many icons.
+    readout:SetWidth((BarSize(0, shown)))
     readout:SetShown(shown > 0)
 end
 
