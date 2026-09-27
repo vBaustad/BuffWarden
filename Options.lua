@@ -297,8 +297,9 @@ function BW:BuildOptions()
         1, 2, 16, function(v) return v .. " icons" end)
 
     L.Check("Ignore groupmates who are far away",
-        "Someone in another zone, or a long way off, isn't counted as missing a buff. Groupmates just "
-        .. "out of casting range are still shown, marked \"out of range\".",
+        "Someone in another part of the zone - over 200 yards off, or on another map - isn't counted "
+        .. "as missing a buff. This is about who is worth listing, not about what you can reach: "
+        .. "BuffWarden never decides that, it lets you click and lets the game answer.",
         function() return db.ignoreFar end,
         function(v) db.ignoreFar = v; BW:Refresh() end)
 

@@ -17,7 +17,7 @@ local defaults = {
     point        = nil,     -- { point, relPoint, x, y }
     disabled     = {},      -- [buffKey] = true / false (overrides the buff's default)
     readyCheck   = true,    -- print what's missing on a ready check
-    ignoreFar    = true,    -- leave out groupmates too far away to bother about
+    ignoreFar    = true,    -- leave out groupmates in another part of the zone (>200 yards)
     placed       = false,   -- has the bar been dragged into place? (the welcome card asks until it has)
     blessFor     = {},      -- ["Name-Realm"] = blessing kind the player picked for them
     blessForClass = {},     -- ["MAGE"] = blessing kind the player picked for every mage
@@ -185,33 +185,33 @@ local function BuffEnabled(def)
 end
 BW.BuffEnabled = BuffEnabled
 
--- One range check per spell and unit for each pass over the group: the same question was being asked
--- several times per refresh (once per buff, again for every tooltip line).
-local rangeCache = {}
-local function InRange(spell, unit)
-    if UnitIsUnit(unit, "player") then return true end
-    local key = tostring(spell) .. "|" .. tostring(unit)
-    local hit = rangeCache[key]
-    if hit ~= nil then return hit end
-    local r = C_Spell.IsSpellInRange and C_Spell.IsSpellInRange(spell, unit)
-    local ok = r ~= false   -- nil = can't tell, give it the benefit of the doubt
-    rangeCache[key] = ok
-    return ok
-end
-
--- How reachable is a groupmate? "range" = inside helpful spell range, "near" = further off but around
--- (worth showing, they can walk over), "far" = another zone or a long way off (left out entirely).
+-- Distance, and what we no longer do with it.
 --
--- The hard part is that we often cannot find out. UnitInRange is documented with SecretReturns on this
--- client, so its answer can come back as a secret value that Clean turns into nil, and it returns TWO
--- things: whether the unit is in range, and whether it checked at all. A false first value means
--- nothing when the second one says it did not look.
+-- BuffWarden does not decide whether a spell will reach. It used to, three times over, and it was
+-- wrong in the one direction that costs the player something: UnitInRange is documented with
+-- SecretReturns on this client, so its answer comes back hidden more often than not, the fallback
+-- measured a real distance and called it "not in casting range", and the button went dead. Blizzard's
+-- own raid frames were drawing the same man at full alpha, in range, in the moment our row said he was
+-- too far away to touch. The client's frames get a real answer; addons get it cleaned.
 --
--- So there are three answers, not two, and the third must never be read as the second: yes, no, and
--- "we don't know". A paladin standing on top of his party was told they were too far away because we
--- collapsed "don't know" into "no" - the same mistake we have now made three times in this addon in
--- one day, which is why the rule is written at every site that can produce it.
+-- So the client decides, at click time, with information we do not have. That is cheap: a failed range
+-- check does not start the cast - no global cooldown, no mana, just the red message - while guessing
+-- wrong costs a button that does nothing at all. A button that might fail beats one greyed out for no
+-- reason, which is what the comment on the old spell-range check said before we ignored it at every
+-- site that used it.
+--
+-- Distance keeps two honest jobs, and neither of them is a refusal:
+--   ORDER    nearest ten-yard band first, group order inside the band, so a paladin working down the
+--            row starts with whoever he is standing next to. Bands rather than metres on purpose:
+--            `order` exists so the queue doesn't jump about, and a sort by the metre would reshuffle
+--            it every step anyone took.
+--   THE LIST `ignoreFar` leaves out someone in another part of the zone. That is a statement about who
+--            is worth listing, not about whether a spell would land, and the setting says so.
+-- Both fail towards "they're here": an unreadable position means the nearest band, and never means far
+-- away. That direction is the whole lesson of this file - nil is "we don't know", never "no".
 local FAR_OUT, FAR_IN, FAR_DELAY = 200, 150, 10   -- yards out, yards back in, seconds before dropping
+local BAND = 10                                    -- yards per ordering band
+local ELSEWHERE = 999                              -- the band for another map: last, if listed at all
 local farSince = {}                                -- [name] = when it first looked far
 
 local function Yards(unit)
@@ -227,39 +227,27 @@ local function Yards(unit)
     return LIB.Distance(myMap, myX, myY, theirMap, x, y), theirMap ~= myMap
 end
 
-local function Nearness(unit, name)
-    if UnitIsUnit(unit, "player") then return "range" end
+-- Where a groupmate sits in the order, and whether they are far enough off to leave out of the list
+-- altogether. Never whether a spell will reach them.
+local function Reach(unit, name)
+    if UnitIsUnit(unit, "player") then return 0, false end
 
-    -- Both return values, and both cleaned: we have an answer only if the client says it checked and
-    -- the result itself survived.
-    local inRange, checked = UnitInRange(unit)
-    inRange, checked = Clean(inRange), Clean(checked)
-    local answered = (checked == true) and (inRange ~= nil)
-    if answered and inRange then farSince[name] = nil return "range" end
-
-    -- Either it said no, or it said nothing. Distance is the only other evidence.
-    local far
     local yards, otherMap = Yards(unit)
-    if yards then
-        far = yards > (farSince[name] and FAR_IN or FAR_OUT)
-    elseif otherMap then
-        far = true                       -- position unreadable but a different map: another zone
-    elseif answered then
-        far = not Clean(UnitIsVisible(unit))
-    else
-        -- Nothing answered at all: no usable range check and no position to measure. Give the doubt
-        -- to the player, exactly as InRange does for the spell itself - a button that might fail is
-        -- worth more than one that is greyed out for no reason. Anyone genuinely far away will be
-        -- caught the moment either source starts answering.
+    if not yards then
+        -- A different map is the one thing that still means far without a distance. Anything else
+        -- unreadable means we know nothing, and nothing is not "far away": that conflation is what
+        -- put a paladin's own party out of reach while they stood on top of him.
+        if otherMap then return ELSEWHERE, true end
         farSince[name] = nil
-        return "range"
+        return 0, false
     end
 
-    if not far then farSince[name] = nil return "near" end
-    -- Hysteresis: only drop someone who has looked far for a while; they come back the moment they're near.
+    local band = math.floor(yards / BAND)
+    if yards <= (farSince[name] and FAR_IN or FAR_OUT) then farSince[name] = nil return band, false end
+    -- Hysteresis on the LIST only: someone hovering at the edge shouldn't flicker in and out of it.
     local since = farSince[name]
-    if not since then farSince[name] = GetTime() return "near" end
-    return (GetTime() - since >= FAR_DELAY) and "far" or "near"
+    if not since then farSince[name] = GetTime() return band, false end
+    return band, (GetTime() - since >= FAR_DELAY)
 end
 
 local FALLBACK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -477,7 +465,7 @@ local function WeaponEntry(w)
     end
     local itemName = item and (C_Item.GetItemNameByID and C_Item.GetItemNameByID(item.id))
     return {
-        key = w.key, mode = "weapon", slot = w, expiring = expiring, reachable = true,
+        key = w.key, mode = "weapon", slot = w, expiring = expiring,
         spell = imbue or itemName or "Weapon buff",
         imbue = imbue, item = item, itemName = itemName,
         left = state.left, missing = missing,
@@ -587,7 +575,7 @@ local function NeedGroupAuras(providers, myClass)
     return false
 end
 
--- Everyone we can see: { unit, name, class, near, auras }. Plus the online providers per class.
+-- Everyone we can see: { unit, name, class, band, rank, auras }. Plus the online providers per class.
 local function ScanGroup()
     local myClass = MyClass()
     local members, providers = {}, {}
@@ -601,8 +589,8 @@ local function ScanGroup()
             local isMe = UnitIsUnit(u, "player")
             local name = GetUnitName(u, true) or u
             seen[name] = true
-            local near = Nearness(u, name)
-            local skip = BW.db.ignoreFar and near == "far"
+            local band, far = Reach(u, name)
+            local skip = BW.db.ignoreFar and far
             if class and not isMe and not skip then
                 providers[class] = providers[class] or {}
                 table.insert(providers[class], u)
@@ -614,7 +602,7 @@ local function ScanGroup()
                     name = name,
                     class = class,
                     isMe = isMe,
-                    near = near,   -- "range" or "near"; far ones aren't here at all
+                    band = band,   -- 0 = nearest, and 0 for anyone we cannot measure
                 }
             end
         end
@@ -622,6 +610,16 @@ local function ScanGroup()
     for name in pairs(farSince) do
         if not seen[name] then farSince[name] = nil end   -- left the group
     end
+
+    -- The one place distance decides anything: nearest band first, group order inside the band. Every
+    -- queue in the addon is built by walking this list, so they all start with whoever is closest
+    -- without any of them having to ask about distance again. `rank` is that final position, and it is
+    -- what anything sorting a subset sorts by - sorting by `order` again would throw the bands away.
+    table.sort(members, function(a, b)
+        if a.band ~= b.band then return a.band < b.band end
+        return a.order < b.order
+    end)
+    for i, m in ipairs(members) do m.rank = i end
 
     -- Second pass: auras, for ourselves always and for the others only when they matter.
     local others = NeedGroupAuras(providers, myClass)
@@ -891,7 +889,8 @@ local function BlessingPlan(members)
             table.sort(list, function(a, b)
                 local ra, rb = retryFirst[a.name] and 1 or 0, retryFirst[b.name] and 1 or 0
                 if ra ~= rb then return ra > rb end
-                return (a.order or 0) < (b.order or 0)
+                -- rank, not order: it already carries "nearest band first, group order inside it".
+                return (a.rank or 0) < (b.rank or 0)
             end)
             plan[#plan + 1] = {
                 kind = kind, spell = spell, targets = list,
@@ -911,7 +910,6 @@ end
 -- Builds the list of things to show. Each entry:
 --   { key, def, mode = "cast"|"ask", spell, icon, targets = {member...}, target, providers = {unit...}, expiring }
 function BW:Compute()
-    wipe(rangeCache)
     local members, providers = ScanGroup()
     local myClass = MyClass()
     local me
@@ -940,8 +938,7 @@ function BW:Compute()
                             spell = "Well Fed", macro = FoodMacro(), expiring = left,
                             food = eatable or nil,
                             -- owns some, willing to use none: say so rather than nag
-                            setAside = (eatable == false and owned and owned ~= false) or nil,
-                            reachable = true }
+                            setAside = (eatable == false and owned and owned ~= false) or nil }
                     end
                 end
 
@@ -956,20 +953,19 @@ function BW:Compute()
 
             elseif def.scope == "group" then
                 if mine then
-                    local missing, target, expiring = {}, nil, nil
+                    local missing, expiring = {}, nil
                     for _, m in ipairs(members) do
                         if Eligible(def, m) and not m.unreadable then
                             local ok, left = HasBuff(m.auras, def.names)
                             if not ok then
                                 missing[#missing + 1] = m
                                 if m.isMe then expiring = left end
-                                if not target and m.near == "range" and InRange(mine, m.unit) then target = m end
                             end
                         end
                     end
                     if #missing > 0 then
                         entries[#entries + 1] = { key = def.key, def = def, mode = "cast", spell = mine,
-                            targets = missing, target = target or missing[1], expiring = expiring }
+                            targets = missing, target = missing[1], expiring = expiring }
                     end
                 elseif Eligible(def, me) and not me.unreadable then
                     local who = Providers(def, providers[def.class], members)
@@ -985,15 +981,15 @@ function BW:Compute()
                 if def.class == myClass and BW.db.blessRow and FirstKnown(def.cast) then
                     BW.blessPlan = BlessingPlan(members)
                 elseif def.class == myClass and FirstKnown(def.cast) then
-                    local missing, target = {}, nil
+                    local missing = {}
                     for _, m in ipairs(members) do
                         if not HasMyBlessing(m, (BlessingFor(m))) then
                             missing[#missing + 1] = m
-                            if not target and InRange(BlessingFor(m) or "", m.unit) then target = m end
                         end
                     end
                     if #missing > 0 then
-                        target = target or missing[1]
+                        -- The nearest one who needs it, because the list is already in that order.
+                        local target = missing[1]
                         local spell, why = BlessingFor(target)
                         entries[#entries + 1] = { key = def.key, def = def, mode = "cast",
                             spell = spell, why = why, targets = missing, target = target }
@@ -1027,19 +1023,6 @@ function BW:Compute()
         end
     end
 
-    -- Nobody in casting range? The icon is dimmed a little: still worth seeing, not actionable yet.
-    for _, e in ipairs(entries) do
-        if e.mode == "weapon" or e.mode == "food" then
-            -- always actionable: it's about you
-        elseif e.mode == "cast" and e.targets then
-            e.reachable = false
-            for _, m in ipairs(e.targets) do
-                if m.near == "range" and InRange(e.spell, m.unit) then e.reachable = true end
-            end
-        else
-            e.reachable = true
-        end
-    end
     -- Icons: the exact spell we'd cast, else the buff's own spell texture. Weapon entries brought theirs.
     -- A lookup can come back empty while the client is still fetching the spell, so fall back rather
     -- than showing an empty square.
@@ -1221,12 +1204,9 @@ local function ButtonOnEnter(self)
             GameTooltip:AddLine("You're missing it.", 1, 1, 1)
         else
             GameTooltip:AddLine("Missing on " .. #e.targets .. ":", 1, 1, 1)
+            -- No "(out of range)" marks. We cannot tell, the game can, and it says so at click time.
             for _, m in ipairs(e.targets) do
-                local line = (LIB and LIB.ColorName(m.name, m.class) or m.name)
-                if m.near ~= "range" or not InRange(e.spell, m.unit) then
-                    line = line .. " |cff888888(out of range)|r"
-                end
-                GameTooltip:AddLine("  " .. line)
+                GameTooltip:AddLine("  " .. (LIB and LIB.ColorName(m.name, m.class) or m.name))
             end
         end
         GameTooltip:AddLine("Click: cast on " .. (e.target.isMe and "yourself" or e.target.name), 0.4, 1, 0.4)
@@ -1367,8 +1347,7 @@ function BW:SetStale(stale)
     self.stale = stale and true or nil
     for _, b in ipairs(buttons) do
         b.stale:SetShown(stale and b.entry ~= nil and not b.entry.preview)
-        local reachable = not (b.entry and b.entry.reachable == false)
-        b.shownAlpha = stale and 0.55 or (reachable and 1 or 0.6)
+        b.shownAlpha = stale and 0.55 or 1
         b:SetAlpha(b.shownAlpha)
         b.icon:SetAlpha(1)
     end
@@ -1403,8 +1382,9 @@ function BW:Apply(entries)
         if b.shownIcon ~= e.icon then b.shownIcon = e.icon; b.icon:SetTexture(e.icon) end
         local desat = e.mode == "ask"
         if b.shownDesat ~= desat then b.shownDesat = desat; b.icon:SetDesaturated(desat) end
-        local alpha = (e.reachable == false) and 0.6 or 1
-        if b.shownAlpha ~= alpha then b.shownAlpha = alpha; b:SetAlpha(alpha) end
+        -- Nothing here is dimmed for distance any more: the icon means "this is missing", which is
+        -- true however far away the person is, and the only thing that greys the bar is combat.
+        if b.shownAlpha ~= 1 then b.shownAlpha = 1; b:SetAlpha(1) end
         -- A weapon buff keeps its purple, the way the game shows it; the countdown turns orange instead.
         -- COLORS.cast as the last resort: a mode without its own colour must never break the bar.
         local c = (e.mode == "weapon" and COLORS.weapon) or (e.expiring and COLORS.expiring)
@@ -1489,16 +1469,6 @@ local function BlessTooltip(self)
         GameTooltip:Show()
         return
     end
-    -- Nobody in the queue is close enough: say it, because the icon dimming alone leaves a player
-    -- clicking a button that cannot do anything and wondering which of them is broken.
-    if not self.unit then
-        local who = p.targets[1]
-        GameTooltip:AddLine(("%s needs this, and is too far away to cast on."):format(
-            who and ShortName(who.name) or "Someone"), 1, 0.5, 0.5, true)
-        GameTooltip:AddLine("Nothing happens until they are in range.", 0.6, 0.6, 0.6, true)
-        GameTooltip:Show()
-        return
-    end
     local first = p.targets[1]
     if first then
         local lvl = Clean(UnitLevel(first.unit))
@@ -1566,14 +1536,15 @@ local function BlessButton(i)
         if down then return end
         local p, unit = self.plan, self.unit
         if not (p and unit) then return end   -- inert button (nobody in range): nothing was cast
-        -- Assume it worked and move on at once, so a paladin can click down the row. A failed cast
-        -- takes the mark away again (UNIT_SPELLCAST_FAILED) and that person is tried first next time.
-        -- The mark goes to whoever the button was aimed at, which is not always the head of the
-        -- queue: the first in range is cast on, and marking targets[1] instead moved the wrong
-        -- person out of the way and left the queue disagreeing with the row.
+        -- Assume it worked and move on at once, so a paladin can click down the row. The guess is
+        -- taken back by UNIT_SPELLCAST_FAILED if a cast started and failed, and by UI_ERROR_MESSAGE
+        -- if the client refused before any cast started - see both, below. The mark goes to whoever
+        -- the button was aimed at rather than the head of the queue, because marking targets[1]
+        -- instead moved the wrong person out of the way and left the queue disagreeing with the row.
         local m = self.target
         if m then justBuffed[m.name] = GetTime() + 2 end
         BW.lastBlessTarget = m and m.name or nil
+        BW.lastBlessAt = GetTime()
         if not InCombatLockdown() then BW:Refresh() end
     end)
     blessButtons[i] = b
@@ -1597,22 +1568,18 @@ function BW:ApplyBlessRow()
         local b = BlessButton(i)
         b.plan = p
         PlaceIcon(b, i, bar)          -- slot i, always: see the note in Apply about the row moving
-        -- Who the click will buff: the first one actually in range, so the name under the icon and
-        -- the cast are the same person. Nobody in range means there is nobody to cast on, and the
-        -- button says so and does nothing - see the attributes below.
-        local target, reachable = p.targets[1], false
-        for _, m in ipairs(p.targets) do
-            if m.near == "range" and InRange(p.spell, m.unit) then target, reachable = m, true break end
-        end
+        -- Who the click will buff: the head of the queue, which is the nearest one who needs it
+        -- because ScanGroup sorted them that way. We do not look for one "in range" first - deciding
+        -- that is how the row ended up full of buttons that did nothing.
+        local target = p.targets[1]
         b.target = target                     -- the click marks THIS person, not targets[1]
-        b.unit = (reachable and target) and target.unit or nil
+        b.unit = target and target.unit or nil
         b.icon:SetTexture(C_Spell.GetSpellTexture(p.spell)
             or "Interface\\Icons\\Spell_Holy_FistOfJustice")
-        -- Three states, and the dimming means what it means everywhere else in this addon: there is
-        -- something here, but you cannot act on it right now. 1 = click me, 0.55 = they are too far
-        -- away, 0.4 = nobody's rules ask for this one. On the whole button, so the gold plate behind
-        -- the icon fades with it.
-        b:SetAlpha(p.spare and 0.4 or (reachable and 1 or 0.55))
+        -- Two states now. 0.4 = nobody's rules ask for this one; 1 = somebody does. Distance is not
+        -- one of them: it used to dim to 0.55 for "too far away", which was a claim we could not back
+        -- up. On the whole button, so the gold plate behind the icon fades with it.
+        b:SetAlpha(p.spare and 0.4 or 1)
         b.icon:SetAlpha(1)
         b.stale:Hide()
         b.count:SetText(#p.targets > 1 and #p.targets or "")
@@ -1625,11 +1592,7 @@ function BW:ApplyBlessRow()
             -- never a surprise, and one that shows nobody is a dead click.
             b.who:SetText("|cff888888you|r")
         elseif target then
-            local who = LIB and LIB.ColorName(target.name, target.class) or ShortName(target.name)
-            -- Out of range: strip the class colour and grey the name, so the row reads at a glance
-            -- without having to hover anything.
-            if not reachable then who = "|cff888888" .. ShortName(target.name) .. "|r" end
-            b.who:SetText(who)
+            b.who:SetText(LIB and LIB.ColorName(target.name, target.class) or ShortName(target.name))
         else
             b.who:SetText("")
         end
@@ -1657,22 +1620,23 @@ function BW:ApplyBlessRow()
                 b:SetAttribute("unit", nil)
                 b:SetAttribute("macrotext",
                     ("/cast [@mouseover,help,nodead][@target,help,nodead][@player] %s"):format(p.spell))
-            elseif b.unit then
+            else
                 -- The rules picked a person, and the name under the icon says who. Keep the unit
-                -- explicit so that name is never a lie: no mouseover override here.
+                -- explicit so that name is never a lie: no mouseover override here, because the
+                -- cursor is over this button when you click it, so a mouseover clause would fall
+                -- through to whoever you happen to have targeted - and then the blessing lands on
+                -- someone the button never named.
+                --
+                -- There is no third branch any more. A button whose person was out of casting range
+                -- used to be made inert, on purpose, because a secure button with no unit falls back
+                -- to the caster and that was an accidental self-buff. It also meant an unclickable
+                -- button whenever we guessed wrong about range, and in combat it stayed unclickable
+                -- for the whole fight, since attributes cannot be changed there. Now the unit is
+                -- always set: the click always tries, and the game says "out of range" if it is.
                 b:SetAttribute("type", "spell")
                 b:SetAttribute("macrotext", nil)
                 b:SetAttribute("spell", p.spell)
                 b:SetAttribute("unit", b.unit)
-            else
-                -- People need this one, but none of them is in range. A secure button with no usable
-                -- unit falls back to the caster, which is exactly the clumsy self-buff we are
-                -- removing, so the button is made inert instead: it shows who is waiting, greyed,
-                -- and a click does nothing at all.
-                b:SetAttribute("type", nil)
-                b:SetAttribute("macrotext", nil)
-                b:SetAttribute("spell", nil)
-                b:SetAttribute("unit", nil)
             end
         end
         b:Show()
@@ -2057,21 +2021,24 @@ SlashCmdList.BUFFWARDEN = function(msg)
             or "|cffff5555nothing read|r - C_ClassTalents.GetActiveConfigID() gave "
                 .. tostring(C_ClassTalents and C_ClassTalents.GetActiveConfigID
                     and C_ClassTalents.GetActiveConfigID())))
-        -- Range, per groupmate, showing the EVIDENCE and not just the verdict. Both of the sources
-        -- this rests on can decline to answer on this client - UnitInRange is documented with
-        -- SecretReturns, and a position needs GetBestMapForUnit to work for somebody else - and when
-        -- both stay quiet the addon has to guess. This is how to find out which of them is talking.
+        -- Distance, per groupmate. Nothing here gates a cast any more, so this prints the two
+        -- things it does decide - the ordering band and whether ignoreFar would leave someone out -
+        -- next to the raw numbers behind them. UnitInRange is shown because it is the answer we no
+        -- longer trust and someone will ask: on this client it is documented with SecretReturns, so
+        -- expect nil/nil, and a position needs GetBestMapForUnit to work for somebody else.
         for i = 0, 4 do
             local u = (i == 0) and "player" or ("party" .. i)
             if UnitExists(u) then
                 local inRange, checked = UnitInRange(u)
                 local yards, otherMap = Yards(u)
-                print(("  range %s (%s): UnitInRange=%s/%s  yards=%s%s  -> %s"):format(
+                local band, far = Reach(u, GetUnitName(u, true) or u)
+                print(("  distance %s (%s): yards=%s%s  band=%s  ignoreFar would drop=%s"
+                    .. "  (UnitInRange said %s/%s, unused)"):format(
                     u, GetUnitName(u, true) or "?",
-                    tostring(Clean(inRange)), tostring(Clean(checked)),
                     yards and ("%.0f"):format(yards) or "|cffff5555no position|r",
                     otherMap and " (another map)" or "",
-                    Nearness(u, GetUnitName(u, true) or u)))
+                    tostring(band), tostring(far),
+                    tostring(Clean(inRange)), tostring(Clean(checked))))
             end
         end
         local plan = BW.blessPlan
@@ -2204,6 +2171,13 @@ function BW.SelfTest()
         if b:IsShown() and b.plan then
             tips = tips + 1
             BlessTooltip(b)
+            -- A visible blessing button with no click action is the bug the user actually reported,
+            -- twice, from two different causes. There is no state that is allowed to be inert any
+            -- more: a spare casts on you, and anyone else's button tries and lets the game refuse.
+            if not b:GetAttribute("type") then
+                return false, ("the %s button is showing and does nothing when clicked"):format(
+                    b.plan.kind)
+            end
         end
     end
     GameTooltip:Hide()
@@ -2237,6 +2211,7 @@ f:RegisterEvent("ADDON_RESTRICTION_STATE_CHANGED")
 f:RegisterEvent("PLAYER_TALENT_UPDATE")        -- a point spent changes what we think we are
 f:RegisterEvent("TRAIT_CONFIG_UPDATED")
 f:RegisterEvent("LEARNED_SPELL_IN_SKILL_LINE") -- trained something: it may be a blessing
+f:RegisterEvent("UI_ERROR_MESSAGE")            -- the client refused: our optimistic mark was wrong
 -- Is this aura update about a buff we watch? Full updates and unreadable ones count; otherwise only
 -- added watched buffs, and removed or changed auras we saw as watched on the last scan.
 local function AuraUpdateMatters(unit, info)
@@ -2333,13 +2308,42 @@ f:SetScript("OnEvent", function(_, event, unit, info)
         BW.ForgetMe()          -- a shield swap decides whether Righteous Fury is worth mentioning
         if not InCombatLockdown() then BW:ScheduleRefresh(0.5) end
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
-        -- it landed: keep the "done" mark until the aura itself shows up
+        -- it landed: keep the "done" mark until the aura itself shows up. The click is settled now,
+        -- so forget it - this fires for every spell the player casts, and leaving it set meant the
+        -- next Judgement could extend a blessing's "done" mark for somebody it had nothing to do with.
         if BW.lastBlessTarget then
             justBuffed[BW.lastBlessTarget] = GetTime() + 3
             retryFirst[BW.lastBlessTarget] = nil
+            BW.lastBlessTarget = nil
+        end
+    elseif event == "UI_ERROR_MESSAGE" then
+        -- The client refused something outright. If we had just guessed that a blessing landed, that
+        -- guess is now unproven, so take it back.
+        --
+        -- This is the event that was missing. UNIT_SPELLCAST_FAILED was supposed to undo the mark,
+        -- but a range refusal never starts a cast: the client rejects it locally, prints the red
+        -- message and sends nothing, so that event never arrives. The mark stood for its full two
+        -- seconds, the person left the queue, and with nobody left in it the whole blessing row
+        -- disappeared and came back. Which is what a paladin trying to buff someone too far away saw.
+        --
+        -- Any error counts, rather than a list of the codes we can name (LE_GAME_ERR_SPELL_OUT_OF_RANGE
+        -- being the one that started this). An error means we confirmed nothing, and "we don't know"
+        -- has to leave the person in the queue - the same rule as everywhere else in this file. The
+        -- one-second window is what ties the complaint to our click instead of to anything else the
+        -- client is grumbling about.
+        --
+        -- No retryFirst here, unlike a failed cast: nothing was cast, so there is nothing to try again
+        -- first, and promoting somebody the game has just said it cannot reach would only fail again.
+        local name = BW.lastBlessTarget
+        if name and GetTime() - (BW.lastBlessAt or 0) < 1 then
+            justBuffed[name] = nil
+            BW.lastBlessTarget = nil
+            -- Now, not scheduled: a scheduled refresh is a visible blink of the wrong row, which is
+            -- the whole complaint.
+            if not InCombatLockdown() then BW:Refresh() end
         end
     elseif event == "UNIT_SPELLCAST_FAILED" then
-        -- out of range, immune, moving: that person goes back to the front of the queue
+        -- a cast that started and failed (immune, moving, interrupted): back to the front of the queue
         local name = BW.lastBlessTarget
         if name then
             justBuffed[name] = nil
