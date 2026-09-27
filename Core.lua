@@ -900,6 +900,28 @@ local function BuffedRecently(name)
     return true
 end
 
+-- A palette of alternatives you cast on yourself: one entry per aura you have trained, in the order
+-- they are listed. Only one can be up at a time, so this is not a list of what is missing - it is the
+-- set of things you can switch to, and which one you want is yours to decide, not ours.
+--
+-- The active one is the only thing we know for certain, so it is the only thing the drawing leans on:
+-- with an aura up, that button is lit and the rest are alternatives; with none up, every one of them
+-- is equally a fix and they are all lit.
+local function AuraPalette(def, me)
+    local out = {}
+    for _, name in ipairs(def.names) do
+        if FirstKnown({ name }) then
+            local up = me and not me.unreadable and (HasBuff(me.auras, { name })) or false
+            out[#out + 1] = { aura = name, spell = name, def = def, active = up and true or nil,
+                              targets = {} }
+        end
+    end
+    -- One trained aura and it is already up: there is nothing to choose between, so do not take a
+    -- slot on the row for it. Two or more is a choice, and then the row earns its place.
+    if #out < 2 and not (out[1] and not out[1].active) then return {} end
+    return out
+end
+
 -- { { kind, spell, targets = { member, ... } }, ... } in BLESSING_ORDER, only blessings we know and
 -- only where someone actually needs one. Targets keep group order, except a failed cast comes first.
 local function BlessingPlan(members)
@@ -957,6 +979,7 @@ function BW:Compute()
     local me
     for _, m in ipairs(members) do if m.isMe then me = m end end
     local entries = {}
+    local auraPalette
     if not me then return entries end
 
     for _, def in ipairs(BW.BUFFS) do
@@ -983,6 +1006,13 @@ function BW:Compute()
                             setAside = (eatable == false and owned and owned ~= false) or nil }
                     end
                 end
+
+            elseif def.scope == "self" and def.palette and BW.db.blessRow
+                and def.class == myClass then
+                -- These go on the row instead of into the reminders, the same way blessings do when
+                -- the row is on. Collected here and appended after the loop, so it does not matter
+                -- which order BW.BUFFS happens to list them in.
+                auraPalette = AuraPalette(def, me)
 
             elseif def.scope == "self" then
                 if mine and not me.unreadable and ShortBuffAllowed(def) then
@@ -1057,6 +1087,11 @@ function BW:Compute()
     end
 
     if not (myClass == "PALADIN" and BW.db.blessRow) then BW.blessPlan = nil end
+    -- The auras sit after the blessings on the same row: one run of "things I cast on purpose", as
+    -- against the reminders below them.
+    if BW.blessPlan and auraPalette then
+        for _, e in ipairs(auraPalette) do BW.blessPlan[#BW.blessPlan + 1] = e end
+    end
 
     if BW.db.weaponBuffs then
         for _, w in ipairs(WEAPON_SLOTS) do
@@ -1552,6 +1587,20 @@ local function BlessTooltip(self)
         end
         GameTooltip:Show()
     end
+    if p.aura then
+        -- Only one aura can be up, so this is a choice, not a reminder. Say which state it is in and
+        -- leave the choice alone: which aura a paladin wants depends on what they are about to do,
+        -- and that is not something the addon can read.
+        if p.active then
+            GameTooltip:AddLine("This is the aura you have up.", 0.6, 1, 0.6)
+        else
+            GameTooltip:AddLine("Click to switch to this aura.", 1, 1, 1)
+        end
+        local casts, cost = ManaFor(p.spell)
+        if casts then GameTooltip:AddLine(("Costs %d mana."):format(cost), 0.6, 0.6, 0.6, true) end
+        GameTooltip:Show()
+        return
+    end
     if p.spare then
         GameTooltip:AddLine("Nobody needs this one by the rules.", 1, 1, 1)
         Clicks("Click: on yourself.")
@@ -1704,14 +1753,25 @@ function BW:ApplyBlessRow()
         b.unit = target and target.unit or nil
         b.icon:SetTexture(C_Spell.GetSpellTexture(p.spell)
             or "Interface\\Icons\\Spell_Holy_FistOfJustice")
-        -- Two states, and a spare has to be unmistakable rather than just faint: a dim icon still
-        -- reads as a buff that would not come off, which is exactly how the palette was misread. So a
-        -- spare loses its colour as well - the bar already says "someone else's to cast" that way.
-        -- Distance is not a state here; it used to dim to 0.55 for "too far away", which was a claim
-        -- we could not back up. Alpha on the whole button, so the plate behind the icon fades too.
-        b:SetAlpha(p.spare and 0.4 or 1)
+        -- A spare has to be unmistakable rather than just faint: a dim icon still reads as a buff
+        -- that would not come off, which is exactly how the palette was misread. So a spare loses its
+        -- colour as well - the bar already says "someone else's to cast" that way. Distance is not a
+        -- state here; it used to dim to 0.55 for "too far away", which was a claim we could not back
+        -- up. Alpha on the whole button, so the plate behind the icon fades with it.
+        --
+        -- An aura is never spare and never grey: one of them is always worth pressing. The one that
+        -- is up is lit and the others are alternatives at half strength; with none up they are all
+        -- lit, because then any of them is the fix.
+        if p.aura then
+            local anyUp = false
+            for _, q in ipairs(plan) do if q.aura and q.active then anyUp = true end end
+            b:SetAlpha((not anyUp or p.active) and 1 or 0.5)
+            b.icon:SetDesaturated(false)
+        else
+            b:SetAlpha(p.spare and 0.4 or 1)
+            b.icon:SetDesaturated(p.spare and true or false)
+        end
         b.icon:SetAlpha(1)
-        b.icon:SetDesaturated(p.spare and true or false)
         b.stale:Hide()
         b.count:SetText(#p.targets > 1 and #p.targets or "")
         -- Three clicks, one button. The client picks between them when you press it, not when we set
@@ -1729,7 +1789,9 @@ function BW:ApplyBlessRow()
         --
         -- A blessing nobody is waiting for aims its left click at you as well, so no button in the
         -- row is ever a dead click and the row can afford to show every blessing you know.
-        local left = b.unit or "player"
+        -- An aura only ever goes on you, so all three clicks are the same cast. Setting them anyway
+        -- keeps one code path and means a right-click does not fall through to something surprising.
+        local left = p.aura and "player" or (b.unit or "player")
         local action = p.spell .. "|" .. left
         if b.action ~= action then
             b.action = action

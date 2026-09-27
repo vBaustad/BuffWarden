@@ -255,7 +255,17 @@ BW.BUFFS = {
       names = { "Demon Skin", "Demon Armor", "Fel Armor" },
       cast = { "Fel Armor", "Demon Armor", "Demon Skin" },
       icon = "Interface\\Icons\\Spell_Shadow_RagingScream" },
-    { key = "aura", spellID = 465, class = "PALADIN", scope = "self",
+    -- `palette` means these are ALTERNATIVES, not a list: only one can be up, and which one you want
+    -- depends on what you are doing right now, so the row shows every one you have trained and you
+    -- pick. It used to offer Devotion and nothing else, so a retribution paladin who had trained
+    -- Retribution Aura was told to cast the tanking one.
+    --
+    -- `names` is also the order they appear in, and it is the order they are trained in.
+    --
+    -- Hunter aspects, warlock armours and shaman shields are the same shape. They are deliberately
+    -- NOT marked: the row is a paladin thing today, and marking them would put a palette on classes
+    -- that have never had one without anybody having asked for it.
+    { key = "aura", spellID = 465, class = "PALADIN", scope = "self", palette = true,
       names = { "Devotion Aura", "Retribution Aura", "Concentration Aura", "Sanctity Aura",
                 "Shadow Resistance Aura", "Frost Resistance Aura", "Fire Resistance Aura",
                 "Crusader Aura" },
