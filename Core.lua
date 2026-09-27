@@ -955,12 +955,19 @@ local function BlessingPlan(members)
             end
         end
     end
-    -- Every blessing you know is always here, whether anyone is waiting for it or not. It used to
-    -- disappear when nobody needed anything, because a row of dimmed icons read as "you're missing
-    -- these" - but that was a row whose only click cast on the queue. Now the row IS how you cast a
-    -- blessing by hand: right-click puts one on yourself and shift-click puts one on whoever you are
-    -- pointing at, neither of which needs the rules to agree first. A palette you cannot see is a
-    -- palette you cannot use, and "spare" under the icon says plainly that nobody asked for it.
+    -- Nobody needs anything: no blessing row at all.
+    --
+    -- Once somebody does, you get every blessing you know, spares included, so Salvation is there for
+    -- the "he's pulling aggro" click without the rules having to agree first. But when the whole row
+    -- is spares it is not a palette, it is five icons sitting on the bar after the job is done - and a
+    -- solo paladin who had just blessed himself read exactly that as blessings that would not go away.
+    -- He said so twice. Greying them was not enough; the honest answer is that there is nothing there.
+    --
+    -- This is a reversal: the row was made always-visible a few commits ago on the reasoning that a
+    -- palette you cannot see is a palette you cannot use. That reasoning was mine and it was wrong
+    -- about the common case, which is standing around with nothing to do.
+    if not next(byKind) then return {} end
+
     local plan = {}
     for _, kind in ipairs(BW.BLESSING_ORDER) do
         local spell = KindSpell(kind)
@@ -996,7 +1003,13 @@ function BW:Compute()
     local me
     for _, m in ipairs(members) do if m.isMe then me = m end end
     local entries = {}
-    local auraPalette
+    -- Both halves of the row are built into locals and assigned at the end. BW.blessPlan used to be
+    -- written straight from inside the loop, which meant that when the branch did not run - a paladin
+    -- who knows no blessing yet, or a spell lookup that comes back empty while the client is still
+    -- fetching it - the field kept its value from the previous pass and the aura buttons were appended
+    -- to it AGAIN. Compute runs several times per refresh, so the row grew by one aura per call,
+    -- without limit. The test that found it asked for one button and got three of the same aura.
+    local blessPlan, auraPalette
     if not me then return entries end
 
     for _, def in ipairs(BW.BUFFS) do
@@ -1068,7 +1081,7 @@ function BW:Compute()
             elseif def.scope == "blessing" then
                 -- As a paladin with the row on, the row shows this instead of one lumped icon.
                 if def.class == myClass and BW.db.blessRow and FirstKnown(def.cast) then
-                    BW.blessPlan = BlessingPlan(members)
+                    blessPlan = BlessingPlan(members)
                 elseif def.class == myClass and FirstKnown(def.cast) then
                     local missing = {}
                     for _, m in ipairs(members) do
@@ -1103,11 +1116,14 @@ function BW:Compute()
         end
     end
 
-    if not (myClass == "PALADIN" and BW.db.blessRow) then BW.blessPlan = nil end
-    -- The auras sit after the blessings on the same row: one run of "things I cast on purpose", as
-    -- against the reminders below them.
-    if BW.blessPlan and auraPalette then
-        for _, e in ipairs(auraPalette) do BW.blessPlan[#BW.blessPlan + 1] = e end
+    -- One assignment, every pass, whatever the loop did. The auras go after the blessings: one run
+    -- of "things I cast on purpose", as against the reminders below them. They stand on their own,
+    -- because having no aura up is a real gap whether or not anybody wants a blessing.
+    if myClass == "PALADIN" and BW.db.blessRow then
+        BW.blessPlan = blessPlan or {}
+        for _, e in ipairs(auraPalette or {}) do BW.blessPlan[#BW.blessPlan + 1] = e end
+    else
+        BW.blessPlan = nil
     end
 
     if BW.db.weaponBuffs then
