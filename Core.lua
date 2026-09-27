@@ -914,25 +914,28 @@ local function BuffedRecently(name)
     return true
 end
 
--- A palette of alternatives you cast on yourself: one entry per aura you have trained, in the order
--- they are listed. Only one can be up at a time, so this is not a list of what is missing - it is the
--- set of things you can switch to, and which one you want is yours to decide, not ours.
+-- Nothing here while an aura is up. Only one can be, so with one running there is no job on this row
+-- at all, and a button that sits there after the thing is done is precisely what gets read as "the
+-- buff will not go away". Switching aura on purpose is what the spellbook is for.
 --
--- The active one is the only thing we know for certain, so it is the only thing the drawing leans on:
--- with an aura up, that button is lit and the rest are alternatives; with none up, every one of them
--- is equally a fix and they are all lit.
+-- With no aura up it is a real gap, and then you get one button per aura you have trained rather than
+-- the one guess the addon used to make for you: which aura you want depends on what you are about to
+-- do, and nothing we can read tells us that. They are all lit, because any of them is the fix.
+--
+-- Auras unreadable (in combat, or an encounter) means we cannot tell whether one is up - and that is
+-- "we don't know", never "there is none", so the row stays out of it.
 local function AuraPalette(def, me)
+    if not me or me.unreadable then return {} end
+    -- Any of them, trained or not: the buff is satisfied by whichever one is running.
+    for _, name in ipairs(def.names) do
+        if (HasBuff(me.auras, { name })) then return {} end
+    end
     local out = {}
     for _, name in ipairs(def.names) do
         if FirstKnown({ name }) then
-            local up = me and not me.unreadable and (HasBuff(me.auras, { name })) or false
-            out[#out + 1] = { aura = name, spell = name, def = def, active = up and true or nil,
-                              targets = {} }
+            out[#out + 1] = { aura = name, spell = name, def = def, targets = {} }
         end
     end
-    -- One trained aura and it is already up: there is nothing to choose between, so do not take a
-    -- slot on the row for it. Two or more is a choice, and then the row earns its place.
-    if #out < 2 and not (out[1] and not out[1].active) then return {} end
     return out
 end
 
@@ -1602,14 +1605,10 @@ local function BlessTooltip(self)
         GameTooltip:Show()
     end
     if p.aura then
-        -- Only one aura can be up, so this is a choice, not a reminder. Say which state it is in and
-        -- leave the choice alone: which aura a paladin wants depends on what they are about to do,
-        -- and that is not something the addon can read.
-        if p.active then
-            GameTooltip:AddLine("This is the aura you have up.", 0.6, 1, 0.6)
-        else
-            GameTooltip:AddLine("Click to switch to this aura.", 1, 1, 1)
-        end
+        -- You have no aura up; these are the ones you could put up. Which one is not ours to say, so
+        -- the tooltip does not recommend one.
+        GameTooltip:AddLine("You have no aura up.", 1, 1, 1)
+        GameTooltip:AddLine("Click: cast this one.", 0.4, 1, 0.4)
         local casts, cost = ManaFor(p.spell)
         if casts then GameTooltip:AddLine(("Costs %d mana."):format(cost), 0.6, 0.6, 0.6, true) end
         GameTooltip:Show()
@@ -1779,13 +1778,10 @@ function BW:ApplyBlessRow()
         -- state here; it used to dim to 0.55 for "too far away", which was a claim we could not back
         -- up. Alpha on the whole button, so the plate behind the icon fades with it.
         --
-        -- An aura is never spare and never grey: one of them is always worth pressing. The one that
-        -- is up is lit and the others are alternatives at half strength; with none up they are all
-        -- lit, because then any of them is the fix.
+        -- An aura is never spare and never grey: it is only here when you have none up, and then
+        -- every one of them is worth pressing.
         if p.aura then
-            local anyUp = false
-            for _, q in ipairs(plan) do if q.aura and q.active then anyUp = true end end
-            b:SetAlpha((not anyUp or p.active) and 1 or 0.5)
+            b:SetAlpha(1)
             b.icon:SetDesaturated(false)
         else
             b:SetAlpha(p.spare and 0.4 or 1)
