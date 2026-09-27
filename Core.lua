@@ -2132,8 +2132,13 @@ SlashCmdList.BUFFWARDEN = function(msg)
         print(TAG .. ": position reset.")
     elseif cmd == "scale" and tonumber(arg) then
         if InCombatLockdown() then print(TAG .. ": not in combat.") return end
-        db.scale = math.min(2, math.max(0.5, tonumber(arg)))
+        local want = tonumber(arg)
+        db.scale = math.min(2, math.max(0.5, want))
         bar:SetScale(db.scale)
+        -- Say so, the way "time" does. The value is clamped, so typing 5 silently gave you 2 and no
+        -- word about why.
+        print(TAG .. ": scale " .. db.scale
+            .. (db.scale ~= want and " (0.5 to 2 is as far as it goes)" or ""))
     elseif cmd == "time" and tonumber(arg) then
         db.threshold = math.max(30, tonumber(arg))
         print(TAG .. ": warns when a buff has less than " .. FmtLong(db.threshold) .. " left.")
@@ -2259,6 +2264,28 @@ SlashCmdList.BUFFWARDEN = function(msg)
                     tostring(Clean(inRange)), tostring(Clean(checked))))
             end
         end
+        -- Every blessing on us, and what the game will say about who cast it. This is the question
+        -- that has been guessed at instead of answered: `sourceUnit` on an aura may be nil (Blizzard's
+        -- own nameplate code guards against it), and when it is, the only ways we can tell our own
+        -- blessing from a stranger's are that it is the one our rules would pick, or that we remember
+        -- casting it. If this prints a real unit for a blessing we cast on ourselves, none of that
+        -- guessing is needed. If it prints nil, the fallbacks are load-bearing and this says which.
+        local me = BW.Me and BW.Me()
+        local auras = ReadAuras("player")
+        local any = false
+        for _, n in ipairs(BW.BLESSING_NAMES) do
+            local a = auras and auras[n]
+            if a then
+                any = true
+                local raw = a.source
+                print(("  blessing on me: %s  source=%s  remembered=%s  counts as ours=%s"):format(
+                    n, tostring(raw) .. (raw == nil and " |cffff5555(the game did not say)|r" or ""),
+                    tostring(myBlessing[GetUnitName("player", true) or "?"]),
+                    tostring(HasMyBlessing({ auras = auras, name = GetUnitName("player", true) },
+                        (BlessingFor(me or { class = MyClass(), isMe = true }))))))
+            end
+        end
+        if not any then print("  blessing on me: none") end
         local plan = BW.blessPlan
         print(("  blessing row: %s, %d button(s)"):format(tostring(db.blessRow),
             plan and #plan or 0))
