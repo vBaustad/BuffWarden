@@ -214,6 +214,14 @@ local BAND = 10                                    -- yards per ordering band
 local ELSEWHERE = 999                              -- the band for another map: last, if listed at all
 local farSince = {}                                -- [name] = when it first looked far
 
+-- [name] = the blessing WE last put on them. The game does not always say who cast an aura -
+-- Blizzard's own nameplate code guards against `sourceUnit` being nil - and without a caster the only
+-- thing we could check was whether the blessing sitting there is the one our own rules would pick. So
+-- a paladin who put Might on himself by hand while the rules wanted Wisdom was asked for Wisdom again
+-- the moment the two-second "just did it" mark ran out: he had buffed himself and the row would not
+-- let go. We know perfectly well what we cast, so remember it. Pruned with the group, in ScanGroup.
+local myBlessing = {}
+
 local function Yards(unit)
     if not (LIB and LIB.Distance and LIB.MyPosition and C_Map and C_Map.GetPlayerMapPosition) then return nil end
     local myMap, myX, myY = LIB.MyPosition()
@@ -651,6 +659,9 @@ local function ScanGroup()
     for name in pairs(farSince) do
         if not seen[name] then farSince[name] = nil end   -- left the group
     end
+    for name in pairs(myBlessing) do
+        if not seen[name] then myBlessing[name] = nil end
+    end
 
     -- The one place distance decides anything: nearest band first, group order inside the band. Every
     -- queue in the addon is built by walking this list, so they all start with whoever is closest
@@ -833,7 +844,9 @@ local function HasMyBlessing(m, mySpell)
         -- "running out soon" test, or a Sacrifice would read as expiring from the moment it lands.
         if a and (BW.BLESSING_SITUATIONAL[n] or not Expiring(a)) then
             if a.source and UnitIsUnit(a.source, "player") then return true end
-            if not a.source and n == mySpell then return true end
+            -- No caster to check. Either it is the blessing our rules would have picked, or it is the
+            -- one we know we cast on this person - which is the same evidence, one step older.
+            if not a.source and (n == mySpell or myBlessing[m.name] == n) then return true end
         end
     end
     return false
@@ -847,7 +860,8 @@ local function BlessingsFromOthers(m, mySpell)
         local a = m.auras[n]
         -- Same rule as HasMyBlessing: another paladin's Sacrifice is their slot spent on us.
         if a and (BW.BLESSING_SITUATIONAL[n] or not Expiring(a)) then
-            local mine = (a.source and UnitIsUnit(a.source, "player")) or (not a.source and n == mySpell)
+            local mine = (a.source and UnitIsUnit(a.source, "player"))
+            or (not a.source and (n == mySpell or myBlessing[m.name] == n))
             if not mine then
                 count = count + 1
                 if a.source then from[#from + 1] = a.source end
@@ -1668,7 +1682,8 @@ local function BlessButton(i)
     -- HookScript, never SetScript: the secure template's own OnClick is what casts.
     b:HookScript("OnClick", function(self, button, down)
         if down then return end
-        if not self.plan then return end
+        local plan = self.plan
+        if not plan then return end
         -- Assume it worked and move on at once, so a paladin can click down the row. The guess is
         -- taken back by UNIT_SPELLCAST_FAILED if a cast started and failed, and by UI_ERROR_MESSAGE
         -- if the client refused before one started - see both, below.
@@ -1686,7 +1701,12 @@ local function BlessButton(i)
         else
             who = self.target.name
         end
-        if who then justBuffed[who] = GetTime() + 2 end
+        if who then
+            justBuffed[who] = GetTime() + 2
+            -- What we cast, so a blessing the game will not attribute is still recognisably ours
+            -- after the two seconds are up. An aura is not a blessing and takes no slot.
+            if not plan.aura then myBlessing[who] = plan.spell end
+        end
         BW.lastBlessTarget = who
         BW.lastBlessAt = GetTime()
         if not InCombatLockdown() then BW:Refresh() end
@@ -2511,6 +2531,7 @@ f:SetScript("OnEvent", function(_, event, unit, info)
         local name = BW.lastBlessTarget
         if name and GetTime() - (BW.lastBlessAt or 0) < 1 then
             justBuffed[name] = nil
+            myBlessing[name] = nil
             BW.lastBlessTarget = nil
             -- Now, not scheduled: a scheduled refresh is a visible blink of the wrong row, which is
             -- the whole complaint.
@@ -2521,6 +2542,7 @@ f:SetScript("OnEvent", function(_, event, unit, info)
         local name = BW.lastBlessTarget
         if name then
             justBuffed[name] = nil
+            myBlessing[name] = nil
             retryFirst[name] = true
             BW.lastBlessTarget = nil
             if not InCombatLockdown() then BW:ScheduleRefresh(0.2) end
