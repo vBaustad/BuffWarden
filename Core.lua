@@ -1751,8 +1751,14 @@ function BW:ApplyBlessRow()
             -- from the bar's left edge. A box pinned at TOPLEFT with a minimum width does not do
             -- this: text centred inside a 140-pixel box that starts at the bar's left edge sits at
             -- x=70 whatever the icons above it are doing, which is why it read as left-aligned.
-            local rows = math.max(1, RowsFor(#plan))
-            local paletteW = math.min(PerRow(), #plan) * (SIZE + GAP) - GAP
+            -- The BLESSING buttons, not the whole row. The auras sit after them in the same run,
+            -- and this line only ever names who gets a blessing - so centring it on blessings plus
+            -- auras drifted it to the right of everything it was talking about.
+            local blessings = 0
+            for _, q in ipairs(plan) do if not q.aura then blessings = blessings + 1 end end
+            if blessings == 0 then blessings = #plan end
+            local rows = math.max(1, RowsFor(blessings))
+            local paletteW = math.min(PerRow(), blessings) * (SIZE + GAP) - GAP
             bar.blessWho:ClearAllPoints()
             bar.blessWho:SetWidth(math.max(160, paletteW))
             bar.blessWho:SetPoint("TOP", bar, "TOPLEFT", paletteW / 2,
