@@ -257,39 +257,45 @@ local function ShortName(full)
     return (full or "?"):match("^[^-]+") or full
 end
 
--- The first character of a string, not the first byte: a surname starting with "Ø" is two bytes, and
--- cutting it in half prints a broken glyph.
-local function FirstChar(s)
-    local b = s and s:byte(1)
-    if not b then return nil end
-    local n = (b >= 0xF0 and 4) or (b >= 0xE0 and 3) or (b >= 0xC0 and 2) or 1
-    return s:sub(1, n)
-end
-
--- A name for the 44-pixel slot under a 36-pixel button. Every Forever name is two words now, and two
--- words do not fit: "Duplo Bonk" clips to "Duplo...", which is precisely the prefix it shares with
--- Duplo Lasse in the same guild - so the clip threw away the one thing the surname was there to tell
--- you. An initial costs the same width and keeps the distinction: "Duplo B.".
+-- Who the row is about: "you" for yourself, the whole name for anyone else, class-coloured either
+-- way. There is one of these under the row rather than one under every icon, so there is room for a
+-- Forever name in full - every one of them is two words now, and the slot under a 36-pixel button was
+-- about seven characters, so five icons each showed a clipped prefix. "Duplo Bonk" and "Duplo Lasse"
+-- both clipped to "Duplo...", which threw away the surname the game had just started giving us.
 --
--- Only for the row. Anywhere with room - every tooltip, the settings page - prints the whole name, and
--- LIB.ShortName still decides whether there is a surname to print at all, since the client has its own
--- setting for that and it is not ours to overrule.
-local function TightName(full)
-    local short = ShortName(full)
-    local first, rest = short:match("^(%S+)%s+(%S.*)$")
-    local initial = rest and FirstChar(rest)
-    if first and initial then return first .. " " .. initial .. "." end
-    return short   -- one word already, or the surname is hidden: nothing to shorten
+-- The player is "you" and not the character name because the row used to name the same person two
+-- different ways at once, which is what made a paladin read one row as three different people.
+local function RowName(m)
+    if m.isMe then
+        local you = "you"
+        if LIB and LIB.ClassColor then return "|c" .. LIB.ClassColor(m.class) .. you .. "|r" end
+        return you
+    end
+    return (LIB and LIB.ColorName(m.name, m.class)) or ShortName(m.name)
 end
 
--- Who a row button is about, the way the row says it everywhere: "you" for yourself, an abbreviated
--- name for anyone else, in their class colour either way. The player used to be written two different
--- ways on one row - a spare said "you" while the button next to it spelled out the character name -
--- which is what made a paladin read his own row as naming three different people.
-local function RowName(m)
-    local text = m.isMe and "you" or TightName(m.name)
-    if LIB and LIB.ClassColor then return "|c" .. LIB.ClassColor(m.class) .. text .. "|r" end
-    return text
+-- What the next cast costs and how many of them your mana holds. Both halves are readable on this
+-- client: the cost from C_Spell.GetSpellPowerCost, and your own mana from UnitPower - which is
+-- documented secret while power is restricted, so it is cleaned and nil means we say nothing rather
+-- than guess.
+--
+-- Information, never a gate. Refusing a click because our arithmetic says you are a little short is
+-- the same mistake we just finished removing for range: the game refuses by itself, for free, at the
+-- moment of the click, and it is never wrong about it. What the game will not tell a paladin is
+-- whether he can get through the group in front of him, so that is the only thing this answers.
+local function ManaFor(spell)
+    if not (C_Spell and C_Spell.GetSpellPowerCost and Enum and Enum.PowerType) then return nil end
+    local mana = Enum.PowerType.Mana
+    local ok, costs = pcall(C_Spell.GetSpellPowerCost, spell)
+    if not ok or type(costs) ~= "table" then return nil end
+    local cost
+    for _, c in ipairs(costs) do
+        if Clean(c.type) == mana then cost = Clean(c.cost) end
+    end
+    if not cost or cost <= 0 then return nil end     -- free, or nothing we could read
+    local have = Clean(UnitPower("player", mana))
+    if not have then return nil end
+    return math.floor(have / cost), cost
 end
 
 local function FmtTime(s)
@@ -910,11 +916,12 @@ local function BlessingPlan(members)
             end
         end
     end
-    -- Nobody needs anything: no row at all. The row is a job list, so an empty one is noise - a
-    -- solo paladin who just blessed himself should see nothing, not a line of dimmed icons that
-    -- reads as "you're missing these".
-    if not next(byKind) then return {} end
-
+    -- Every blessing you know is always here, whether anyone is waiting for it or not. It used to
+    -- disappear when nobody needed anything, because a row of dimmed icons read as "you're missing
+    -- these" - but that was a row whose only click cast on the queue. Now the row IS how you cast a
+    -- blessing by hand: right-click puts one on yourself and shift-click puts one on whoever you are
+    -- pointing at, neither of which needs the rules to agree first. A palette you cannot see is a
+    -- palette you cannot use, and "spare" under the icon says plainly that nobody asked for it.
     local plan = {}
     for _, kind in ipairs(BW.BLESSING_ORDER) do
         local spell = KindSpell(kind)
@@ -1323,6 +1330,16 @@ function BW:CreateBar()
     bar = CreateFrame("Frame", "BuffWardenBar", holder)
     bar:SetSize(SIZE, SIZE)
     bar:SetMovable(true)
+    -- One name for the whole blessing row, under it, wide enough for a real name. Anchored to the
+    -- bar's bottom rather than to a button, so it stays put whether the icons wrap onto a second row
+    -- or the row is a single button wide - and it is allowed to be wider than the bar itself, which is
+    -- the entire reason it exists.
+    bar.blessWho = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    bar.blessWho:SetPoint("TOP", bar, "BOTTOM", 0, -2)
+    bar.blessWho:SetWidth(220)
+    bar.blessWho:SetWordWrap(false)
+    bar.blessWho:SetJustifyH("CENTER")
+    bar.blessWho:Hide()
     bar:SetClampedToScreen(true)
     bar:SetScale(self.db.scale)
     local p = self.db.point
@@ -1485,7 +1502,7 @@ function BW:Apply(entries)
     bar:EnableMouse(unlocked)
     -- The countdown sits under the icons, so keep that line on screen too (a negative bottom inset
     -- grows the area the bar is clamped inside).
-    bar:SetClampRectInsets(0, 0, 0, -14)
+    bar:SetClampRectInsets(0, 0, 0, -28)
     -- The blessing buttons live in the bar now, so the bar has to stay up for them even when there is
     -- nothing else to show.
     bar:SetShown(n > 0 or blessSlots > 0)
@@ -1502,10 +1519,29 @@ local function BlessTooltip(self)
     if BW.stale then
         GameTooltip:AddLine("As of the pull - buffs can't be read in combat.", 0.6, 0.6, 0.6, true)
     end
+    -- The three clicks, spelled out on every button: this is where the mechanism lives, which is why
+    -- the label under the icon is free to answer one question and only that one.
+    local function Clicks(leftLine)
+        GameTooltip:AddLine(leftLine, 0.4, 1, 0.4)
+        GameTooltip:AddLine("Right-click: on yourself.", 0.4, 1, 0.4)
+        GameTooltip:AddLine("Shift-click: on whoever you point at, or your target.", 0.4, 1, 0.4)
+        local casts, cost = ManaFor(p.spell)
+        if casts then
+            local waiting = #p.targets
+            if waiting > 1 and casts < waiting then
+                -- The one thing the game will not tell you: whether you can finish the group.
+                GameTooltip:AddLine(("Mana: enough for %d of the %d waiting, %d each.")
+                    :format(casts, waiting, cost), 1, 0.7, 0.3, true)
+            else
+                GameTooltip:AddLine(("Mana: enough for %d, %d each."):format(casts, cost),
+                    0.6, 0.6, 0.6, true)
+            end
+        end
+        GameTooltip:Show()
+    end
     if p.spare then
         GameTooltip:AddLine("Nobody needs this one by the rules.", 1, 1, 1)
-        GameTooltip:AddLine("Click: whoever you point at or have targeted, else yourself.", 0.4, 1, 0.4)
-        GameTooltip:Show()
+        Clicks("Click: on yourself.")
         return
     end
     local first = p.targets[1]
@@ -1531,8 +1567,7 @@ local function BlessTooltip(self)
         GameTooltip:AddLine("Then: " .. table.concat(names, ", ")
             .. (rest > 0 and (" and " .. rest .. " more") or ""), 1, 1, 1, true)
     end
-    GameTooltip:AddLine("Click: cast it and move on.", 0.4, 1, 0.4)
-    GameTooltip:Show()   -- filling it is not showing it: without this the tooltip never appears
+    Clicks("Click: cast it and move on.")   -- Clicks shows the tooltip; filling it is not showing it
 end
 
 local function BlessButton(i)
@@ -1559,10 +1594,6 @@ local function BlessButton(i)
     b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     b.count = b:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
     b.count:SetPoint("BOTTOMRIGHT", -2, 2)
-    b.who = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    b.who:SetPoint("TOP", b, "BOTTOM", 0, -1)
-    b.who:SetWidth(SIZE + GAP * 2)
-    b.who:SetWordWrap(false)
     b.stale = b:CreateTexture(nil, "OVERLAY", nil, 2)
     b.stale:SetSize(14, 14)
     b.stale:SetPoint("BOTTOMLEFT", 1, 1)
@@ -1573,18 +1604,28 @@ local function BlessButton(i)
     b:SetScript("OnEnter", BlessTooltip)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
     -- HookScript, never SetScript: the secure template's own OnClick is what casts.
-    b:HookScript("OnClick", function(self, _, down)
+    b:HookScript("OnClick", function(self, button, down)
         if down then return end
-        local p, unit = self.plan, self.unit
-        if not (p and unit) then return end   -- inert button (nobody in range): nothing was cast
+        if not self.plan then return end
         -- Assume it worked and move on at once, so a paladin can click down the row. The guess is
         -- taken back by UNIT_SPELLCAST_FAILED if a cast started and failed, and by UI_ERROR_MESSAGE
-        -- if the client refused before any cast started - see both, below. The mark goes to whoever
-        -- the button was aimed at rather than the head of the queue, because marking targets[1]
-        -- instead moved the wrong person out of the way and left the queue disagreeing with the row.
-        local m = self.target
-        if m then justBuffed[m.name] = GetTime() + 2 end
-        BW.lastBlessTarget = m and m.name or nil
+        -- if the client refused before one started - see both, below.
+        --
+        -- Which person the guess is about depends on which click it was, and reading that off the
+        -- queue instead of off the click is a bug we have already shipped twice: marking targets[1]
+        -- when the button was aimed at somebody else, and now marking the queued person when you
+        -- right-clicked yourself. The mark follows the cast.
+        local who
+        if IsShiftKeyDown() then
+            who = nil                    -- you pointed at somebody; we do not know who, and a guess
+                                         -- here would take the wrong person off the list
+        elseif button == "RightButton" or not self.target then
+            who = GetUnitName("player", true)   -- right-click, and a spare's left-click, land on you
+        else
+            who = self.target.name
+        end
+        if who then justBuffed[who] = GetTime() + 2 end
+        BW.lastBlessTarget = who
         BW.lastBlessAt = GetTime()
         if not InCombatLockdown() then BW:Refresh() end
     end)
@@ -1601,10 +1642,35 @@ function BW:ApplyBlessRow()
             b.stale:SetShown(b:IsShown())
             b:SetAlpha(0.55)
         end
+        if bar.blessWho then bar.blessWho:SetAlpha(0.55) end
         return
     end
+    if bar.blessWho then bar.blessWho:SetAlpha(1) end
 
     local plan = self.blessPlan or {}
+
+    -- The one name under the row: whoever you would buff next, which is the head of whichever queue
+    -- starts with the closest person - members are already sorted that way, so it is the lowest rank.
+    -- The blessing's name goes with it, because a name on its own under five buttons does not tell you
+    -- which one to press.
+    local nextKind, nextWho
+    for _, p in ipairs(plan) do
+        local head = p.targets[1]
+        if head and (not nextWho or (head.rank or 0) < (nextWho.rank or 0)) then
+            nextKind, nextWho = p.kind, head
+        end
+    end
+    if bar.blessWho then
+        if self.db.blessNames and nextWho then
+            local label = (BW.BLESSING_LABEL[nextKind] or nextKind):gsub("^Blessing of ", "")
+            bar.blessWho:SetText(("%s |cff888888%s|r"):format(RowName(nextWho), label))
+            bar.blessWho:Show()
+        else
+            bar.blessWho:SetText("")
+            bar.blessWho:Hide()
+        end
+    end
+
     for i, p in ipairs(plan) do
         local b = BlessButton(i)
         b.plan = p
@@ -1624,67 +1690,40 @@ function BW:ApplyBlessRow()
         b.icon:SetAlpha(1)
         b.stale:Hide()
         b.count:SetText(#p.targets > 1 and #p.targets or "")
-        b.who:SetShown(self.db.blessNames)
-        if not self.db.blessNames then
-            b.who:SetText("")
-        elseif p.spare then
-            -- This slot answers one question on every other button - who needs this one - so it has to
-            -- answer the same question here, and the answer is nobody. It used to say "you", meaning
-            -- "a click lands on you", and that is a different question: the user read it as advice,
-            -- because advice is what this slot means everywhere else, while the tooltip was saying
-            -- "nobody needs this one" at the same moment. Two spares side by side both said "you",
-            -- which reads as two blessings on yourself - something the one-per-paladin slot forbids.
-            --
-            -- "spare" is not a name, so it cannot be misread as either. Where a click actually lands
-            -- is still written down, in the tooltip, which is where the rest of the mechanism lives.
-            b.who:SetText("|cff888888spare|r")
-        elseif target then
-            b.who:SetText(RowName(target))
-        else
-            b.who:SetText("")
-        end
-        local action = p.spell .. "|" .. (b.unit or (p.spare and "spare") or "none")
+        -- Three clicks, one button. The client picks between them when you press it, not when we set
+        -- them, so all three keep working in combat - where an attribute cannot be changed and the
+        -- name under the icon is frozen at the pull. The label can go stale; the clicks cannot.
+        --
+        --   left        the person the rules picked, the one named under the icon. An explicit unit
+        --               with no mouseover or target clause in front of it: the cursor is on this
+        --               button when you click it, so a [@target] clause would quietly win and put the
+        --               blessing on whoever you happened to have selected instead of who it names.
+        --   right       you, always, whatever the queue says. No waiting for your own turn.
+        --   shift+left  whoever you are pointing at, else your target. The manual override, and a
+        --               macro because only a macro is read at the moment of the click - which is also
+        --               what makes it the one way to redirect a cast mid-fight.
+        --
+        -- A blessing nobody is waiting for aims its left click at you as well, so no button in the
+        -- row is ever a dead click and the row can afford to show every blessing you know.
+        local left = b.unit or "player"
+        local action = p.spell .. "|" .. left
         if b.action ~= action then
             b.action = action
-            if p.spare then
-                -- Nobody's rules ask for this one, so there is no name to print and no unit to fix
-                -- in advance. A macro decides at click time instead: point at someone in your party
-                -- frames, or target them, and they get it. This is the "he's pulling aggro" click,
-                -- and Salvation is why it exists. Macro conditionals are read when the button is
-                -- pressed, so this one attribute works in combat too.
-                --
-                -- [@player] is the LAST clause and it is the target, not a fallback: the name under
-                -- the button says "you", so a click doing what the button says is the whole point.
-                --
-                -- Removing it once was a mistake worth remembering. The real bug then was not that
-                -- [@player] existed - it was that a button could quietly TURN INTO a spare under the
-                -- cursor, while the whole row also slid sideways as icons came and went, so a click
-                -- aimed at a groupmate landed on the paladin. Both of those are fixed: the buttons
-                -- keep their places, and a spare says whose blessing it is about to be. Taking the
-                -- clause away instead left a paladin unable to buff himself at all, which is the
-                -- first thing a paladin does.
-                b:SetAttribute("type", "macro")
-                b:SetAttribute("unit", nil)
-                b:SetAttribute("macrotext",
-                    ("/cast [@mouseover,help,nodead][@target,help,nodead][@player] %s"):format(p.spell))
-            else
-                -- The rules picked a person, and the name under the icon says who. Keep the unit
-                -- explicit so that name is never a lie: no mouseover override here, because the
-                -- cursor is over this button when you click it, so a mouseover clause would fall
-                -- through to whoever you happen to have targeted - and then the blessing lands on
-                -- someone the button never named.
-                --
-                -- There is no third branch any more. A button whose person was out of casting range
-                -- used to be made inert, on purpose, because a secure button with no unit falls back
-                -- to the caster and that was an accidental self-buff. It also meant an unclickable
-                -- button whenever we guessed wrong about range, and in combat it stayed unclickable
-                -- for the whole fight, since attributes cannot be changed there. Now the unit is
-                -- always set: the click always tries, and the game says "out of range" if it is.
-                b:SetAttribute("type", "spell")
-                b:SetAttribute("macrotext", nil)
-                b:SetAttribute("spell", p.spell)
-                b:SetAttribute("unit", b.unit)
-            end
+            b:SetAttribute("type1", "spell")
+            b:SetAttribute("spell1", p.spell)
+            b:SetAttribute("unit1", left)
+            b:SetAttribute("type2", "spell")
+            b:SetAttribute("spell2", p.spell)
+            b:SetAttribute("unit2", "player")
+            b:SetAttribute("shift-type1", "macro")
+            b:SetAttribute("shift-macrotext1",
+                ("/cast [@mouseover,help,nodead][@target,help,nodead] %s"):format(p.spell))
+            -- The unsuffixed set is what a mouse with more buttons than we planned for falls back to,
+            -- and it does the ordinary thing rather than nothing.
+            b:SetAttribute("type", "spell")
+            b:SetAttribute("spell", p.spell)
+            b:SetAttribute("unit", left)
+            b:SetAttribute("macrotext", nil)
         end
         b:Show()
     end
@@ -1692,6 +1731,7 @@ function BW:ApplyBlessRow()
         blessButtons[i].plan = nil
         blessButtons[i]:Hide()
     end
+    if #plan == 0 and bar.blessWho then bar.blessWho:Hide() end
 end
 
 -- ---------------------------------------------------------------------------

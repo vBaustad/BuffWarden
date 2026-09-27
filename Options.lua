@@ -343,9 +343,11 @@ function BW:BuildOptions()
             .. "blessing, and the ones nobody asked for are dimmed, for when you want to pick yourself.",
             function() return db.blessRow end,
             function(v) db.blessRow = v; BW:Refresh() end)
-        L.Check("Name the next person on the button",
-            "The name sits under each blessing button, so you see who you are about to buff. Turn it off "
-            .. "for a smaller row - the tooltip still says who.",
+        L.Check("Name the next person under the row",
+            "One line under the blessing row: who you would buff next, and which blessing. It used to "
+            .. "be a name under every icon, but the space under a single icon fits about seven "
+            .. "characters and no Forever name is that short. Turn it off for a smaller row - every "
+            .. "button's tooltip still says who it would go to.",
             function() return db.blessNames end,
             function(v) db.blessNames = v; BW:Refresh() end)
         L.BlessingClasses()
