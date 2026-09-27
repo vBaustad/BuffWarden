@@ -1743,14 +1743,20 @@ function BW:ApplyBlessRow()
     end
     if bar.blessWho then
         if self.db.blessNames and nextWho then
-            -- Directly under the palette's last row of icons, and centred on the palette rather than
+            -- Directly under the palette's last row of icons, and centred on the PALETTE rather than
             -- on the bar, so it stays attached to the buttons it is talking about however many
-            -- missing-buff icons happen to be showing below.
+            -- missing-buff icons are showing below.
+            --
+            -- Anchored by the line's own TOP - its centre - to a point half the palette's width in
+            -- from the bar's left edge. A box pinned at TOPLEFT with a minimum width does not do
+            -- this: text centred inside a 140-pixel box that starts at the bar's left edge sits at
+            -- x=70 whatever the icons above it are doing, which is why it read as left-aligned.
             local rows = math.max(1, RowsFor(#plan))
+            local paletteW = math.min(PerRow(), #plan) * (SIZE + GAP) - GAP
             bar.blessWho:ClearAllPoints()
-            bar.blessWho:SetPoint("TOPLEFT", bar, "TOPLEFT", 0,
+            bar.blessWho:SetWidth(math.max(160, paletteW))
+            bar.blessWho:SetPoint("TOP", bar, "TOPLEFT", paletteW / 2,
                 -((rows - 1) * ROW_H + SIZE) - 1)
-            bar.blessWho:SetWidth(math.max(140, math.min(PerRow(), #plan) * (SIZE + GAP) - GAP))
             local label = (BW.BLESSING_LABEL[nextKind] or nextKind):gsub("^Blessing of ", "")
             bar.blessWho:SetText(("%s |cff888888%s|r"):format(RowName(nextWho), label))
             bar.blessWho:Show()
