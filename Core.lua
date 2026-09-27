@@ -1079,10 +1079,26 @@ function BW:Compute()
                 end
 
             elseif def.scope == "blessing" then
-                -- As a paladin with the row on, the row shows this instead of one lumped icon.
-                if def.class == myClass and BW.db.blessRow and FirstKnown(def.cast) then
+                -- Three cases, and the third one is why the other two are written out separately.
+                --
+                -- The blessing row is a QUEUE, and a queue is only worth anything if the head of it
+                -- is somebody you can actually reach. In a party that holds: five people, all of them
+                -- normally within arm's length, and `C_Map.GetPlayerMapPosition` can order them by
+                -- distance if it has to. In a raid it does not hold at all, and not because we got it
+                -- wrong - the client's own documentation says GetPlayerMapPosition "only works for the
+                -- player and party members". So in a forty-man there are no positions, every member
+                -- lands in the nearest band, and the queue is raid order: raid1, raid2, raid3. Click
+                -- Might and it casts at whoever is third on the roster, who is usually across the
+                -- room. The user's words: "masse muligheter men bare halvparten funker".
+                --
+                -- So the ordering worked where it was not needed and failed where it was the only
+                -- thing that mattered. Rather than pretend, a raid gets one icon that COUNTS. It
+                -- carries no cast action at all, which is deliberate: a queue we cannot order is not
+                -- something to hand a click to, and the tooltip says so instead of failing quietly.
+                local mine = def.class == myClass and FirstKnown(def.cast)
+                if mine and BW.db.blessRow and not IsInRaid() then
                     blessPlan = BlessingPlan(members)
-                elseif def.class == myClass and FirstKnown(def.cast) then
+                elseif mine then
                     local missing = {}
                     for _, m in ipairs(members) do
                         if not HasMyBlessing(m, (BlessingFor(m))) then
@@ -1093,7 +1109,8 @@ function BW:Compute()
                         -- The nearest one who needs it, because the list is already in that order.
                         local target = missing[1]
                         local spell, why = BlessingFor(target)
-                        entries[#entries + 1] = { key = def.key, def = def, mode = "cast",
+                        entries[#entries + 1] = { key = def.key, def = def,
+                            mode = IsInRaid() and "count" or "cast",
                             spell = spell, why = why, targets = missing, target = target }
                     end
                 end
@@ -1322,6 +1339,23 @@ local function ButtonOnEnter(self)
             GameTooltip:AddLine("Click: use " .. e.itemName .. " from your bags", 0.4, 1, 0.4)
         end
         GameTooltip:AddLine("Readable in combat, unlike other buffs.", 0.6, 0.6, 0.6, true)
+        GameTooltip:Show()
+        return
+    end
+    if e.mode == "count" then
+        GameTooltip:AddLine(("%d in your raid are missing a blessing:"):format(#e.targets), 1, 1, 1)
+        local shown = 0
+        for _, m in ipairs(e.targets) do
+            if shown >= 5 then break end
+            shown = shown + 1
+            GameTooltip:AddLine("  " .. (LIB and LIB.ColorName(m.name, m.class) or m.name))
+        end
+        if #e.targets > shown then
+            GameTooltip:AddLine(("  and %d more"):format(#e.targets - shown), 0.6, 0.6, 0.6)
+        end
+        GameTooltip:AddLine("The blessing row is for parties. In a raid the game will not tell an "
+            .. "addon where anyone is standing, so BuffWarden cannot put the person next to you at "
+            .. "the front of a queue - it counts instead of guessing.", 0.6, 0.6, 0.6, true)
         GameTooltip:Show()
         return
     end
@@ -1564,6 +1598,9 @@ function BW:Apply(entries)
             elseif e.item then
                 typ, macro = "macro", ("/use item:%d\n/use %d"):format(e.item.id, e.slot.inv)
             end
+        elseif e.mode == "count" then
+            -- Nothing. See the blessing branch in Compute: in a raid we cannot tell who is near you,
+            -- so this icon reports and does not pretend to act.
         elseif e.mode == "cast" then
             typ, spell, unit = "spell", e.spell, e.target.unit
         elseif e.providers[1] then
@@ -2019,6 +2056,9 @@ function BW:Report(prefix)
             cast[#cast + 1] = "Well Fed"
         elseif e.mode == "weapon" then
             cast[#cast + 1] = e.label .. ": " .. (e.expiring and "running out" or "no weapon buff")
+        elseif e.mode == "count" then
+            -- Not in "you can cast": in a raid we are reporting, not offering.
+            ask[#ask + 1] = ("a Blessing for %d in the raid"):format(#e.targets)
         elseif e.mode == "cast" then
             cast[#cast + 1] = e.spell .. ((#e.targets > 1 or not e.targets[1].isMe) and (" (" .. #e.targets .. ")") or "")
         else
