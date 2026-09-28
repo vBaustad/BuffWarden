@@ -2008,6 +2008,13 @@ end
 -- refreshes). While auras are secret outside combat (an instance encounter, a restricted map) we can't
 -- know what's missing, so the bar shows nothing rather than a guess; ADDON_RESTRICTION_STATE_CHANGED
 -- brings it back.
+-- Above Refresh, not beside ScheduleRefresh where it is read: Refresh stamps it, and a local
+-- declared below the line that writes it is not the same variable. It was below, so the stamp went to
+-- a global, `lastRefresh` here stayed 0, and `lastRefresh + MIN_GAP - GetTime()` was always a large
+-- negative number - the floor never applied and a 0.2s request stayed 0.2s.
+local MIN_GAP = 0.3            -- never scan more often than this, however many events arrive
+local lastRefresh = 0
+
 function BW:Refresh()
     if not self.db then return end
     lastRefresh = GetTime()
@@ -2023,9 +2030,6 @@ function BW:Refresh()
     self:ApplyBlessRow()
     self:UpdateWeaponReadout()
 end
-
-local MIN_GAP = 0.3            -- never scan more often than this, however many events arrive
-local lastRefresh = 0
 
 -- A pending refresh is rescheduled when something asks for a sooner one (buffing a party sends a burst
 -- of aura events, and the old code made every one of them wait for the first timer).
