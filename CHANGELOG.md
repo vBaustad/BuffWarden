@@ -1,6 +1,6 @@
 # BuffWarden
 
-## Unreleased
+## 0.1.0-beta7
 
 - **BuffWarden no longer tells you to eat food you are saving.** It used to ask whether you *own* anything that gives Well Fed, and treat owning some as permission to spend it - so a player keeping buff food for a raid was told to eat it. It now asks AutoFeed two questions instead of one: what you own decides whether the reminder is relevant, and what you are willing to use decides whether it suggests eating. Set your buff food aside in AutoFeed and the icon still shows that the buff is missing, with "you have food for this, but it's set aside in AutoFeed" - so you can see that we know, and where to change it if you want to.
 - **BuffWarden no longer decides whether someone is in range - it lets you click and lets the game answer.** Buttons were going dead, and the tooltip was saying "too far away to cast on", for people standing right next to you: the game's range check can come back hidden from addons on this client, and the distance BuffWarden measured instead was never a casting range at all - it read the same at five yards as at a hundred and fifty. Blizzard's own raid frames were drawing the same man in range at that moment. So no button is ever refused now. Clicking one that is genuinely out of range gives you the game's red message and nothing else - no cooldown, no mana - and that is a far better deal than a button you cannot press.
