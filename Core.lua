@@ -22,8 +22,8 @@ local defaults = {
     blessFor     = {},      -- ["Name-Realm"] = blessing kind the player picked for them
     blessForClass = {},     -- ["MAGE"] = blessing kind the player picked for every mage
     blessKings   = false,   -- Kings to everyone it is known for, even the Might classes
-    blessRow     = true,    -- paladins: the blessing buttons, in the same run as the other icons
-    blessNames   = true,    -- show the next target's name on each blessing button
+    blessRow     = true,    -- paladins: the blessing buttons, on their own row above the reminders
+    blessNames   = true,    -- one line under that row: who you would buff next, and which blessing
     perRow       = 12,      -- icons on one line before a second line starts
     weaponBuffs  = true,    -- watch the temporary enchant on your weapons (stones, oils, imbues)
     weaponPref   = "auto",  -- "auto" (oil for mana classes, stone for the rest), "stone" or "oil"
