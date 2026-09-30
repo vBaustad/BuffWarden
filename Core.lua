@@ -1720,6 +1720,24 @@ local function BlessTooltip(self)
     Clicks("Click: cast it and move on.")   -- Clicks shows the tooltip; filling it is not showing it
 end
 
+-- Can this spell be cast this instant? true, false, or nil for "we cannot tell".
+--
+-- Only `isActive` is read, and that is the point: the documentation marks it NeverSecret, so it is a
+-- real boolean on a client where `startTime` and `duration` come back secret whenever cooldowns are
+-- restricted. We never want the numbers - "is it on cooldown" is the entire question - so there is
+-- nothing here to clean, and no arithmetic on a value that might be hidden.
+--
+-- GetSpellCooldown is documented MayReturnNothing, and nothing is nil, which is "we don't know" and
+-- never "it is ready". `isOnGCD` exists too and is deliberately unused: the client's own documentation
+-- says not to trust that field except while handling SPELL_UPDATE_COOLDOWN, and a click is not that.
+local function Ready(spell)
+    if not (C_Spell and C_Spell.GetSpellCooldown) then return nil end
+    local cd = C_Spell.GetSpellCooldown(spell)
+    if not cd or cd.isActive == nil then return nil end
+    return not cd.isActive
+end
+BW.Ready = Ready
+
 local function BlessButton(i)
     if blessButtons[i] then return blessButtons[i] end
     local b = CreateFrame("Button", "BuffWardenBless" .. i, bar, "SecureActionButtonTemplate")
@@ -1753,11 +1771,34 @@ local function BlessButton(i)
     b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
     b:SetScript("OnEnter", BlessTooltip)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- Sampled BEFORE the secure template casts, and that ordering is the whole reason this is a
+    -- separate script rather than two lines in the hook below. The hook is a HookScript, so it runs
+    -- AFTER the cast - and by then the global cooldown is running either way: because our click
+    -- started it, or because it was already running and the click was dropped. After the fact those
+    -- two are indistinguishable, so the question has to be asked before.
+    b:HookScript("PreClick", function(self, _, down)
+        if down then return end
+        local plan = self.plan
+        -- Not `plan and Ready(...) or nil`: Ready returns false for "on cooldown", and that collapses
+        -- to nil through `or`, which is the opposite answer.
+        if plan then self.wasReady = Ready(plan.spell) else self.wasReady = nil end
+    end)
     -- HookScript, never SetScript: the secure template's own OnClick is what casts.
     b:HookScript("OnClick", function(self, button, down)
         if down then return end
         local plan = self.plan
         if not plan then return end
+        -- A click the global cooldown swallowed cast nothing, so there is nothing to assume about it.
+        -- Marking anyway is what let three quick clicks down the row take three people out of the
+        -- queue for one blessing: the first one cast, the next two were dropped on the floor, and all
+        -- three were reported done. Two seconds later they came back, by which time the paladin had
+        -- moved on believing the group was buffed.
+        --
+        -- Only a definite false stops the mark. nil means we could not read the cooldown, and then the
+        -- old behaviour is the right one: assume it worked, and let an error take the guess back.
+        local ready = self.wasReady
+        self.wasReady = nil
+        if ready == false then return end
         -- Assume it worked and move on at once, so a paladin can click down the row. The guess is
         -- taken back by UNIT_SPELLCAST_FAILED if a cast started and failed, and by UI_ERROR_MESSAGE
         -- if the client refused before one started - see both, below.
