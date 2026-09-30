@@ -1016,7 +1016,18 @@ function BW:Compute()
         if BuffEnabled(def) then
             local mine = def.class == myClass and FirstKnown(def.cast)
 
-            if def.scope == "food" then
+            -- A DELIBERATE no-op, and it is worth saying that it is one: every branch below tests
+            -- for a named scope and there is no trailing `else`, so a "tracking" def would fall out of
+            -- this chain untouched with or without these three lines. Deleting them changes nothing,
+            -- which a re-break proved - the suite noticed six other breaks and could not notice this.
+            --
+            -- It stays because this is where somebody looks to find out whether the bar handles
+            -- tracking, and the answer has to be here rather than only in Data.lua: tracking is not a
+            -- buff, it never expires so there is no "missing" to report, and turning it on is a
+            -- function call rather than a cast, so it needs no secure button. UpdateTracking draws it.
+            if def.scope == "tracking" then
+
+            elseif def.scope == "food" then
                 -- Three states, and the middle one is the whole point:
                 --   owns nothing  -> no icon at all. An icon you cannot act on is just nagging.
                 --   owns and will eat it -> the icon names the food, as before.
@@ -2002,6 +2013,143 @@ function BW:UpdateWeaponReadout()
 end
 
 -- ---------------------------------------------------------------------------
+-- Minimap tracking
+-- ---------------------------------------------------------------------------
+-- Plain frames, not secure buttons, and that is the load-bearing decision here. Turning tracking on is
+-- C_Minimap.SetTracking, an ordinary function call rather than a cast, so nothing about this row needs
+-- protecting - and an unprotected frame may be hidden during combat, which a secure button may not.
+-- That is the only way to keep these out of a fight whether or not the player has the bar itself set to
+-- hide. See the tracking entries in Data.lua for why they are not treated as buffs.
+local trackRow
+local trackIcons = {}
+local trackPicked = {}   -- [key] = when it was clicked; the client's `active` lags behind the cast
+
+-- Every tracking type the client offers, keyed by the name it reports.
+--
+-- Two things this deliberately does not conclude. GetNumTrackingTypes lists types this character cannot
+-- use as well - the client's own menu filters those with a local function we cannot call - so a name
+-- appearing here proves nothing about whether you have the profession; Knows() decides that, the same
+-- as every other entry in BW.BUFFS. And GetTrackingInfo is documented Nilable, so a nil is "we could
+-- not read it", never "it is off".
+local function TrackingRows()
+    if not C_Minimap or not C_Minimap.GetNumTrackingTypes then return nil end
+    local n = C_Minimap.GetNumTrackingTypes()
+    if not n or n < 1 then return nil end
+    local out = {}
+    for i = 1, n do
+        local info = C_Minimap.GetTrackingInfo(i)
+        if info and info.name then
+            out[info.name] = { index = i, active = info.active, texture = info.texture }
+        end
+    end
+    return out
+end
+
+-- One entry per tracking you have, have left switched on in the settings, and have not turned on yet.
+--
+-- This list empties itself for good rather than coming back. Tracking does not lapse: the moment it is
+-- on it stays on across logins, so an icon that has done its job never returns. That is what makes a
+-- reminder with no expiry acceptable here - it can only ever ask a character once.
+local function TrackingPlan()
+    local rows = TrackingRows()
+    if not rows then return {} end
+    local now = GetTime()
+    local out = {}
+    for _, def in ipairs(BW.BUFFS) do
+        if def.scope == "tracking" and BuffEnabled(def) and FirstKnown(def.cast) then
+            -- By name, not by ID: two spellIDs share each of these names and a character is taught one
+            -- or the other, so the name is the only thing both halves agree on. GetSpellName gives it
+            -- in the client's own language, which is what GetTrackingInfo reports as well.
+            local name = C_Spell.GetSpellName(def.spellID) or def.cast[1]
+            local row = name and rows[name]
+            local picked = trackPicked[def.key]
+            -- Two different unknowns, and neither may be read as "off". A type we could not read at
+            -- all never reaches `rows`, so `row` is nil; and `active` is documented non-nilable, so
+            -- `== false` rather than `not active` is what keeps a nil from becoming a claim if that
+            -- ever slips. Only a definite false puts an icon on screen.
+            if row and row.active == false and not (picked and now - picked < 2) then
+                out[#out + 1] = { def = def, index = row.index, name = name, texture = row.texture }
+            end
+        end
+    end
+    return out
+end
+
+-- Published the same way BuffEnabled and Knows are, so the self-test and the suite can both count
+-- the row without reaching into a file-local.
+BW.TrackingPlan = TrackingPlan
+
+local function TrackIcon(i)
+    if trackIcons[i] then return trackIcons[i] end
+    local f = CreateFrame("Button", nil, trackRow)
+    f:SetSize(SIZE, SIZE)
+    f.border = f:CreateTexture(nil, "BACKGROUND")
+    f.border:SetAllPoints()
+    f.border:SetColorTexture(1, 1, 1)
+    f.icon = f:CreateTexture(nil, "ARTWORK")
+    f.icon:SetPoint("TOPLEFT", 2, -2)
+    f.icon:SetPoint("BOTTOMRIGHT", -2, 2)
+    f.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    f:SetScript("OnEnter", function(self)
+        local p = self.track
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
+        GameTooltip:AddLine(p and p.name or "Tracking", 1, 0.82, 0.3)
+        GameTooltip:AddLine("Switched off, so it is not showing on your minimap.", 1, 1, 1)
+        if p and p.def.note then GameTooltip:AddLine(p.def.note, 0.6, 0.6, 0.6, true) end
+        GameTooltip:AddLine("Click to turn it on. Once is enough - the game remembers it between "
+            .. "sessions, and then this icon is gone.", 0.6, 0.6, 0.6, true)
+        GameTooltip:Show()
+    end)
+    f:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    f:SetScript("OnClick", function(self)
+        local p = self.track
+        if not p then return end
+        -- Marked BEFORE the call, because the state does not turn over at once: the client casts a
+        -- spell to change tracking and `active` stays false until that lands. Blizzard's own tracking
+        -- menu keeps a predicted state for the same reason. Without this the icon comes back for a
+        -- moment and reads as a click that failed.
+        trackPicked[p.def.key] = GetTime()
+        C_Minimap.SetTracking(p.index, true)
+        BW:UpdateTracking()
+    end)
+    trackIcons[i] = f
+    return f
+end
+
+-- Above the bar, which is where the weapon readout sits too. They can never both be up: that one shows
+-- only in combat, and this one never does.
+function BW:UpdateTracking()
+    if not self.db then return end
+    if not trackRow then
+        trackRow = CreateFrame("Frame", "BuffWardenTracking", UIParent)
+        trackRow:SetSize(SIZE, SIZE)
+        trackRow:Hide()
+    end
+    -- Never during a fight, and either reason alone would be enough. Changing tracking runs a cast
+    -- underneath, so a click mid-fight is not reliably a click at all; and the row was asked to stay
+    -- out of the way in combat however the bar itself is set.
+    if InCombatLockdown() then trackRow:Hide() return end
+    trackRow:SetScale(self.db.scale or 1)
+    trackRow:ClearAllPoints()
+    trackRow:SetPoint("BOTTOMLEFT", bar, "TOPLEFT", 0, GAP)
+    local plan = TrackingPlan()
+    for i, p in ipairs(plan) do
+        local f = TrackIcon(i)
+        f.track = p
+        f.icon:SetTexture(p.texture or BW.IconFor(p.def))
+        f.border:SetVertexColor(1, 0.82, 0.3)   -- gold: yours to fix, the same as the bar says it
+        PlaceIcon(f, i, trackRow, 0)
+        f:Show()
+    end
+    for i = #plan + 1, #trackIcons do
+        trackIcons[i].track = nil
+        trackIcons[i]:Hide()
+    end
+    trackRow:SetWidth((BarSize(0, #plan)))
+    trackRow:SetShown(#plan > 0)
+end
+
+-- ---------------------------------------------------------------------------
 -- Refresh
 -- ---------------------------------------------------------------------------
 -- In combat the bar can't change anyway, so nothing is read until it ends (PLAYER_REGEN_ENABLED
@@ -2029,6 +2177,7 @@ function BW:Refresh()
     self:Apply(entries)
     self:ApplyBlessRow()
     self:UpdateWeaponReadout()
+    self:UpdateTracking()
 end
 
 -- A pending refresh is rescheduled when something asks for a sooner one (buffing a party sends a burst
@@ -2453,9 +2602,11 @@ function BW.SelfTest()
     note("%d missing", #entries)
     note("%d blessing", BW.blessPlan and #BW.blessPlan or 0)
 
-    -- Draw it all: the bar, the blessing row and the in-combat readout.
+    -- Draw it all: the bar, the blessing row, the in-combat readout and the tracking row.
     BW:Refresh()
     BW:UpdateWeaponReadout()
+    BW:UpdateTracking()
+    note("%d tracking", #BW.TrackingPlan())
 
     -- The unlocked placeholders, which nothing else runs while the bar is locked.
     note("%d preview", #BW:BuildPreview())
@@ -2500,6 +2651,10 @@ f:RegisterEvent("UNIT_AURA")
 f:RegisterEvent("UNIT_CONNECTION")
 f:RegisterEvent("PLAYER_REGEN_ENABLED")
 f:RegisterEvent("PLAYER_REGEN_DISABLED")
+-- What the client's own tracking button listens to. Without it the row only agreed with the minimap
+-- while BuffWarden was the one that changed it: turning ore tracking on from the game's own menu left
+-- our icon sitting there telling the player to do what they had just done.
+f:RegisterEvent("MINIMAP_UPDATE_TRACKING")
 f:RegisterEvent("SPELLS_CHANGED")
 f:RegisterEvent("PLAYER_LEVEL_UP")
 f:RegisterEvent("READY_CHECK")
@@ -2602,9 +2757,14 @@ f:SetScript("OnEvent", function(_, event, unit, info)
         wipe(knownCache)
         BW.ForgetTalents()     -- read the tree again: this is what decides healer from tank
         BW:ScheduleRefresh()
+    elseif event == "MINIMAP_UPDATE_TRACKING" then
+        -- The row only. No aura changed, so there is nothing for a full refresh to find, and this
+        -- fires for every tracking filter the player touches.
+        if not InCombatLockdown() then BW:UpdateTracking() end
     elseif event == "PLAYER_REGEN_DISABLED" then
         BW:SetStale(true)
         BW:UpdateWeaponReadout()
+        BW:UpdateTracking()   -- hides it: Refresh does not run in combat, so nothing else would
     elseif event == "BAG_UPDATE_DELAYED" or event == "UNIT_INVENTORY_CHANGED" then
         BW.ForgetEnhancers()
         BW.ForgetMe()          -- a shield swap decides whether Righteous Fury is worth mentioning

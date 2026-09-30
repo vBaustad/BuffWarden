@@ -311,7 +311,9 @@ function BW:BuildOptions()
     -- Which buffs --------------------------------------------------------------
     L.Header("Which buffs")
     L.Note("Untick a buff to stop watching it. Your own class's buffs show as gold (you cast them); group "
-        .. "buffs from other classes show as grey (you ask for them).")
+        .. "buffs from other classes show as grey (you ask for them). The three marked Tracking are not "
+        .. "buffs at all - they are the minimap's ore, herb and treasure tracking, which you only ever "
+        .. "turn on once. Untick one and BuffWarden stops mentioning it.")
     local rowY = L.y
     for i, def in ipairs(BW.BUFFS) do
         local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
@@ -326,6 +328,8 @@ function BW:BuildOptions()
             classText = c and ("|c%s%s|r"):format(c.colorStr, pretty) or pretty
         elseif def.scope == "food" then
             classText = "|cff888888Food|r"
+        elseif def.scope == "tracking" then
+            classText = "|cff888888Tracking|r"
         end
         L.y = rowY - row * ROW_H
         L.Check(("|T%s:16:16|t %s  %s"):format(tostring(BW.IconFor(def)), name, classText), nil,

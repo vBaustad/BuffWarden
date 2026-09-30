@@ -1,5 +1,9 @@
 # BuffWarden
 
+## Unreleased
+
+- **BuffWarden now tells you when your minimap tracking is switched off.** If you have Mining or Herbalism, or you are a dwarf, there is tracking that shows ore, herbs and treasure on your minimap - and if it was never turned on, nothing in the game ever mentions it. You just walk past things. BuffWarden puts one icon above the bar for each one you have and have not switched on; clicking it turns that tracking on. It is the only thing in BuffWarden you will ever click once: tracking does not run out, the game remembers it between sessions, and the icon is then gone on that character for good. It never appears during a fight, and each of the three can be unticked in the settings like any buff.
+
 ## 0.1.0-beta7
 
 - **BuffWarden no longer tells you to eat food you are saving.** It used to ask whether you *own* anything that gives Well Fed, and treat owning some as permission to spend it - so a player keeping buff food for a raid was told to eat it. It now asks AutoFeed two questions instead of one: what you own decides whether the reminder is relevant, and what you are willing to use decides whether it suggests eating. Set your buff food aside in AutoFeed and the icon still shows that the buff is missing, with "you have food for this, but it's set aside in AutoFeed" - so you can see that we know, and where to change it if you want to.

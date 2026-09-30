@@ -319,6 +319,43 @@ BW.BUFFS = {
       short = { warnPct = 0.1, warnMin = 10, power = "RAGE", cost = 10, groupOnly = true },
       note = "Only in a group and when you have the rage for it; warns when a tenth of it is left.",
       icon = "Interface\\Icons\\Ability_Warrior_BattleShout" },
+
+    -- Minimap tracking ---------------------------------------------------------
+    -- These are not buffs, and they are in this table for exactly one reason: the settings page and
+    -- `/bwarden toggle <key>` both walk BW.BUFFS, so being here is what makes them switchable off like
+    -- everything else. Everything else about them is different, which is why Compute skips them and
+    -- they get their own row instead of a place on the bar:
+    --
+    --   * THEY NEVER EXPIRE. The choice lives in the `minimapTrackedInfov4` CVar and survives logging
+    --     out, so this is a one-time setup rather than a buff that fell off. The icon can only ever
+    --     show until you press it once, and then it is gone on that character for good.
+    --   * THEY ARE NOT MUTUALLY EXCLUSIVE on this client. The client's own tracking menu builds
+    --     independent checkboxes with an "uncheck all", and C_Minimap.SetTracking takes a boolean per
+    --     type - minerals and herbs can both be on. So this is NOT a palette like the paladin auras
+    --     above, where only one can be up and the row is therefore a choice. There is nothing to pick.
+    --   * TURNING ONE ON IS A FUNCTION CALL, not a cast: C_Minimap.SetTracking. So the row needs no
+    --     secure button, and that is what lets it hide itself in combat - a secure button cannot.
+    --
+    -- Not read as auras. All three carry a flag in Attributes[1] that a visible aura like Devotion Aura
+    -- does not, which fits you never seeing "Find Minerals" among your buffs. The state comes from
+    -- C_Minimap.GetTrackingInfo instead, whose `active` is documented non-nilable - a definite answer,
+    -- which is rare enough in this addon to be worth saying out loud.
+    --
+    -- `cast` is what decides whether you have the profession, through the same Knows() every other
+    -- entry uses. Two spellIDs share each name (2383/8387 Find Herbs, 2580/8388 Find Minerals) and a
+    -- character is taught one or the other, so nothing here may depend on which ID it was.
+    { key = "trackminerals", spellID = 2580, scope = "tracking",
+      names = {}, cast = { "Find Minerals" },
+      note = "Needs Mining. Ore stops showing on your minimap when this is off, and nothing says so.",
+      icon = "Interface\\Icons\\Spell_Fire_FlameTounge" },
+    { key = "trackherbs", spellID = 2383, scope = "tracking",
+      names = {}, cast = { "Find Herbs" },
+      note = "Needs Herbalism. Herbs stop showing on your minimap when this is off.",
+      icon = "Interface\\Icons\\Spell_Nature_NatureTouchGrow" },
+    { key = "tracktreasure", spellID = 2481, scope = "tracking",
+      names = {}, cast = { "Find Treasure" },
+      note = "Dwarves only - it comes with the race rather than a profession.",
+      icon = "Interface\\Icons\\INV_Misc_Bag_10" },
 }
 
 -- ---------------------------------------------------------------------------
