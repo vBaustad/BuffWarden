@@ -1738,6 +1738,41 @@ local function Ready(spell)
 end
 BW.Ready = Ready
 
+-- The cooldown sweep on one row button, so you can see the global cooldown turning over instead of
+-- guessing when the next click will land.
+--
+-- THE OBJECT, NEVER THE NUMBERS, and that is not a style choice. C_Spell.GetSpellCooldown's startTime
+-- and duration come back secret whenever cooldowns are restricted, and Cooldown:SetCooldown is marked
+-- SecretArguments = "AllowedWhenUntainted" - every addon is tainted, so we may not hand it a secret.
+-- GetSpellCooldownDuration is "AllowedWhenTainted" and returns an opaque LuaDurationObject instead,
+-- which SetCooldownFromDurationObject takes directly. Nothing is read, so nothing needs permission to
+-- be read. SetCooldown is therefore never called here, and a test says so.
+--
+-- ignoreGCD stays false on purpose: the global cooldown is the whole thing we are drawing.
+--
+-- Cosmetic only. If the client tells us nothing the sweep is cleared rather than invented - but note
+-- that unlike everywhere else in this file, "we don't know" costing us a sweep is cheap, because the
+-- decision that matters (whether a click counted) is made by Ready above and not by this.
+local function PaintCooldown(b, spell)
+    local cd = b.cd
+    if not cd or not spell then return end
+    if not (C_Spell.GetSpellCooldownDuration and cd.SetCooldownFromDurationObject) then return end
+    local dur = C_Spell.GetSpellCooldownDuration(spell, false)
+    if dur then cd:SetCooldownFromDurationObject(dur) else cd:Clear() end
+end
+
+-- Every button on the row at once, because the global cooldown is not per spell: click one blessing
+-- and all of them are unavailable for the same second and a half, which is exactly the thing worth
+-- seeing. Out of combat only - SetCooldownFromDurationObject is a protected function and these
+-- buttons are protected frames, so a call in combat is the kind that gets refused; and in combat the
+-- row is already wearing the stale clock and showing the plan from the pull.
+function BW:PaintRowCooldowns()
+    if InCombatLockdown() then return end
+    for _, b in ipairs(blessButtons) do
+        if b:IsShown() and b.plan then PaintCooldown(b, b.plan.spell) end
+    end
+end
+
 local function BlessButton(i)
     if blessButtons[i] then return blessButtons[i] end
     local b = CreateFrame("Button", "BuffWardenBless" .. i, bar, "SecureActionButtonTemplate")
@@ -1771,6 +1806,11 @@ local function BlessButton(i)
     b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
     b:SetScript("OnEnter", BlessTooltip)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- The sweep sits over the icon, under the text. Same template the client's own action buttons
+    -- use, and the same one RXPGuides drives from addon code on this build - which is the evidence
+    -- that a protected cooldown setter is reachable from a tainted addon at all.
+    b.cd = CreateFrame("Cooldown", "$parentCooldown", b, "CooldownFrameTemplate")
+    b.cd:SetAllPoints()
     -- Sampled BEFORE the secure template casts, and that ordering is the whole reason this is a
     -- separate script rather than two lines in the hook below. The hook is a HookScript, so it runs
     -- AFTER the cast - and by then the global cooldown is running either way: because our click
@@ -1964,6 +2004,8 @@ function BW:ApplyBlessRow()
         blessButtons[i]:Hide()
     end
     if #plan == 0 and bar.blessWho then bar.blessWho:Hide() end
+    -- After the buttons have their plans, so each sweep is for the spell that button now casts.
+    self:PaintRowCooldowns()
 end
 
 -- ---------------------------------------------------------------------------
@@ -2696,6 +2738,9 @@ f:RegisterEvent("PLAYER_REGEN_DISABLED")
 -- while BuffWarden was the one that changed it: turning ore tracking on from the game's own menu left
 -- our icon sitting there telling the player to do what they had just done.
 f:RegisterEvent("MINIMAP_UPDATE_TRACKING")
+-- The one event the client's own documentation points at for cooldowns. Only the sweep is repainted:
+-- no aura changed, and a full refresh on every cooldown tick would be absurd.
+f:RegisterEvent("SPELL_UPDATE_COOLDOWN")
 f:RegisterEvent("SPELLS_CHANGED")
 f:RegisterEvent("PLAYER_LEVEL_UP")
 f:RegisterEvent("READY_CHECK")
@@ -2798,6 +2843,8 @@ f:SetScript("OnEvent", function(_, event, unit, info)
         wipe(knownCache)
         BW.ForgetTalents()     -- read the tree again: this is what decides healer from tank
         BW:ScheduleRefresh()
+    elseif event == "SPELL_UPDATE_COOLDOWN" then
+        BW:PaintRowCooldowns()
     elseif event == "MINIMAP_UPDATE_TRACKING" then
         -- The row only. No aura changed, so there is nothing for a full refresh to find, and this
         -- fires for every tracking filter the player touches.
