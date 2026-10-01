@@ -288,6 +288,16 @@ function BW:BuildOptions()
         "The icons can't change during combat, so by default they're hidden until it ends.",
         function() return db.hideInCombat end,
         function(v) db.hideInCombat = v; BW:ApplyCombatSetting() end)
+    -- "While you're resting" and not "in cities", because that is the question the game will answer.
+    -- A city and an inn are the same thing to IsResting, and nothing else the client offers separates
+    -- a city from a quiet questing zone, so promising "cities" would be promising precision we do not
+    -- have. Off by default: a setting that hides things is not one to spring on anybody.
+    L.Check("Hide while resting",
+        "Nothing on screen while you're resting - that's any major city and any inn, which is the same "
+        .. "thing as far as the game will tell an addon. Buffs still count: /bwarden still reports what "
+        .. "you're missing, and a ready check still answers. The bar comes straight back when you leave.",
+        function() return db.hideResting end,
+        function(v) db.hideResting = v; BW:Refresh() end)
 
     L.Stepper("Warn when a buff has less than", "The icon turns orange and shows the time left. Short "
         .. "buffs warn at a tenth of their duration instead (at least a minute).",

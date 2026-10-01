@@ -12,6 +12,7 @@ local TAG = "|cff66ccffBuffWarden|r"
 local defaults = {
     threshold    = 300,     -- warn (orange) when a buff has fewer seconds left than this
     hideInCombat = true,    -- the bar is secure; this hides it through a state driver
+    hideResting  = false,   -- nothing on screen while you are resting (a city or an inn)
     locked       = true,
     scale        = 1,
     point        = nil,     -- { point, relPoint, x, y }
@@ -1555,6 +1556,24 @@ local COLORS = {
     food     = { 1, 0.82, 0.3 },       -- gold: eating is yours to fix too
 }
 
+-- "Nothing on screen right now": the player is resting and has asked for quiet there.
+--
+-- IsResting is true in a major city AND in an inn, and this client gives an addon no way to tell the
+-- two apart. There is no sanctuary in this game, and C_PvP.GetZonePVPInfo answers "friendly" for every
+-- piece of your own faction's territory - Dun Morogh exactly as much as Ironforge - so it cannot be
+-- used to mean "city". So the setting is honestly about RESTING, and its line in the options says so
+-- rather than implying a precision we do not have. IsResting itself is a plain bool with no secret
+-- marking at all, which is rarer than it sounds in this file.
+--
+-- Only what is DRAWN goes quiet. /bwarden status and the ready-check report still answer, because a
+-- question you went and asked deserves an answer wherever you happen to be standing - and a report
+-- that said "all buffed up" in a city would be a lie rather than a kindness.
+local function Quiet()
+    if not (BW.db and BW.db.hideResting) then return false end
+    return IsResting() and true or false
+end
+BW.Quiet = Quiet
+
 function BW:Apply(entries)
     if InCombatLockdown() then self.dirty = true return end
     self.dirty = nil
@@ -1644,8 +1663,9 @@ function BW:Apply(entries)
     -- grows the area the bar is clamped inside).
     bar:SetClampRectInsets(0, 0, 0, -14)
     -- The blessing buttons live in the bar now, so the bar has to stay up for them even when there is
-    -- nothing else to show.
-    bar:SetShown(n > 0 or blessSlots > 0)
+    -- nothing else to show - unless we are being quiet, and then the blessing row goes with it,
+    -- because those buttons are children of this frame.
+    bar:SetShown((n > 0 or blessSlots > 0) and not Quiet())
 end
 
 -- ---------------------------------------------------------------------------
@@ -2058,7 +2078,10 @@ function BW:UpdateWeaponReadout()
         readout:SetScale(self.db.scale or 1)
         readout:Hide()
     end
-    if not (self.db.weaponBuffs and InCombatLockdown()) then readout:Hide() return end
+    if not (self.db.weaponBuffs and InCombatLockdown()) or Quiet() then
+        readout:Hide()
+        return
+    end
     readout:SetScale(self.db.scale or 1)
     -- With the bar hidden in combat (the default) this takes its place; with the bar kept visible it
     -- sits just above, so the live weapon icon never covers the bar's frozen one.
@@ -2212,6 +2235,10 @@ function BW:UpdateTracking()
     -- underneath, so a click mid-fight is not reliably a click at all; and the row was asked to stay
     -- out of the way in combat however the bar itself is set.
     if InCombatLockdown() then trackRow:Hide() return end
+    -- Resting too. Arguably a city is a fine place to go and switch your ore tracking on - but a
+    -- setting called "hide while resting" that leaves something on screen is a worse surprise than
+    -- waiting until you step outside, and this icon only ever appears once anyway.
+    if Quiet() then trackRow:Hide() return end
     trackRow:SetScale(self.db.scale or 1)
     trackRow:ClearAllPoints()
     trackRow:SetPoint("BOTTOMLEFT", bar, "TOPLEFT", 0, GAP)
@@ -2436,6 +2463,12 @@ SlashCmdList.BUFFWARDEN = function(msg)
         BW:ApplyCombatSetting()
         print(TAG .. ": " .. (db.hideInCombat and "hidden in combat" or "shown in combat")
             .. (InCombatLockdown() and " (from the next fight)." or "."))
+    elseif cmd == "resting" then
+        db.hideResting = not db.hideResting
+        BW:Refresh()
+        print(TAG .. ": " .. (db.hideResting and "hidden while you are resting (a city or an inn)"
+            or "shown while you are resting")
+            .. (IsResting() and db.hideResting and " - which is right now." or "."))
     elseif cmd == "toggle" and arg ~= "" then
         for _, def in ipairs(BW.BUFFS) do
             if def.key == arg then
@@ -2507,6 +2540,9 @@ SlashCmdList.BUFFWARDEN = function(msg)
         local _, c = UnitClass("player")
         print(TAG .. " debug (" .. tostring(c) .. "):")
         -- The settings as they are stored right now, so a wrong-looking bar can be traced to a setting.
+        print(("  resting: %s, hideResting=%s -> %s")
+            :format(tostring(IsResting()), tostring(db.hideResting),
+                BW.Quiet() and "the bar is hidden on purpose" or "showing"))
         print(("  settings: warn=%ds hideInCombat=%s locked=%s placed=%s scale=%s ignoreFar=%s readyCheck=%s")
             :format(db.threshold, tostring(db.hideInCombat), tostring(db.locked), tostring(db.placed),
                 tostring(db.scale), tostring(db.ignoreFar), tostring(db.readyCheck)))
@@ -2741,6 +2777,9 @@ f:RegisterEvent("MINIMAP_UPDATE_TRACKING")
 -- The one event the client's own documentation points at for cooldowns. Only the sweep is repainted:
 -- no aura changed, and a full refresh on every cooldown tick would be absurd.
 f:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+-- Walking in and out of an inn or a city gate. The same event the client's own PlayerFrame uses for
+-- the resting icon, so we change over at the same moment it does.
+f:RegisterEvent("PLAYER_UPDATE_RESTING")
 f:RegisterEvent("SPELLS_CHANGED")
 f:RegisterEvent("PLAYER_LEVEL_UP")
 f:RegisterEvent("READY_CHECK")
@@ -2843,6 +2882,8 @@ f:SetScript("OnEvent", function(_, event, unit, info)
         wipe(knownCache)
         BW.ForgetTalents()     -- read the tree again: this is what decides healer from tank
         BW:ScheduleRefresh()
+    elseif event == "PLAYER_UPDATE_RESTING" then
+        if not InCombatLockdown() then BW:Refresh() end
     elseif event == "SPELL_UPDATE_COOLDOWN" then
         BW:PaintRowCooldowns()
     elseif event == "MINIMAP_UPDATE_TRACKING" then
