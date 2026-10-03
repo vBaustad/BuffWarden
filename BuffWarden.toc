@@ -28,4 +28,3 @@ Libs\LibForever-1.0\SelfTest.lua
 Data.lua
 Core.lua
 Options.lua
-Welcome.lua

@@ -1,5 +1,7 @@
--- BuffWarden's settings page. LibForever hosts it in the shared YippYapp window (which also holds the
--- minimap, launcher and other shared settings), gives it the window's width and scrolls it for us.
+-- BuffWarden's settings page. LibForever hosts it in the YippYapp window, gives it the window's width
+-- and scrolls it for us. There is no shared settings page any more and no launcher bar, so everything
+-- that used to live over there and still has a reason to exist is on this page: whether BuffWarden
+-- appears in the minimap row, and the help text that used to be its welcome page.
 local ADDON, BW = ...
 
 local LIB = LibStub and LibStub("LibForever-1.0", true)
@@ -19,13 +21,44 @@ local refreshers = {}
 local PAD = 8            -- left edge inside the page
 local INDENT = 26        -- a description, or a control, sits here under the thing it belongs to
 local CONTROL_X = 200    -- every label's control starts here, so the rows line up with each other
-local MEASURE_W = 468    -- the narrowest page we plan for
+-- The real page is 544 wide (LIB.OptionsWidth answers that). 468 is a deliberate FLOOR, not a stale
+-- guess: paragraphs are anchored to both edges so they wrap to whatever width the window actually
+-- gives, and only the vertical space reserved for them is measured here. Reserving for a narrower page
+-- than we get costs a little air; reserving for a wider one would overlap the next control. The window
+-- is resizable, so the floor stays until this page re-lays out from LIB.OnOptionsResize - which it does
+-- not do today, and which is the honest reason this number is still here.
+local MEASURE_W = 468    -- the narrowest page we plan for; the real one is 544
 local COL_W = 234        -- one column of the buff grid: MEASURE_W / 2, so column two stays on the page
 local BEFORE_HEAD = 16
 local AFTER_HEAD = 18
 local ROW_H = 26         -- a checkbox or a button row
 local TEXT_GAP = 3       -- between a control and its own description
 local BLOCK_GAP = 12     -- after a description, before the next control or heading
+
+-- What used to be BuffWarden's page in the YippYapp welcome window, which has gone. It sits at the
+-- bottom of this page with its headings always visible: somebody opening settings usually wants the
+-- switches, and the help is what they scroll to.
+--
+-- Two things changed in the move rather than being copied across. The old text said the icon sits
+-- "behind the YippYapp button if you use several YippYapp addons" - grouping is fixed on now, so there
+-- is always one YippYapp button and the "if" was no longer true. And the page carried a "Place the bar
+-- now" button, which is dropped: "Unlock the bar" at the top of this page is the same call.
+local HELP = {
+    { "What it shows",
+      "A small row of icons for the buffs you're missing: your own (Inner Fire, Mage Armor, "
+      .. "Aspects...), the group buffs your party can give (Fortitude, Arcane Intellect, Mark of the "
+      .. "Wild, Blessings), food, and the buff on your weapon - stones, oils, imbues and poisons. When "
+      .. "nothing is missing, nothing is shown." },
+    { "One click to fix it",
+      "|cffffd24dGold|r: you can cast it yourself. The number is how many in your group are missing "
+      .. "it, and a click casts it on the nearest one.\n"
+      .. "|cff8fa6c0Grey|r: a groupmate has it. A click whispers them to ask.\n"
+      .. "|cffff7a1aOrange|r: it's running out soon." },
+    { "Move, lock and settings",
+      "Left-click the BuffWarden icon in the YippYapp minimap row to unlock the bar: you get a preview "
+      .. "to drag into place, and a second click locks it again (/bwarden unlock and lock do the same). "
+      .. "Right-click the icon, or type /bwarden, for these settings. The bar hides in combat." },
+}
 
 -- A paragraph that must never be cut off: anchored to BOTH edges so it wraps to whatever width the
 -- page really has, with its height reserved for the narrow case.
@@ -430,6 +463,26 @@ function BW:BuildOptions()
         function() return db.readyCheck end,
         function(v) db.readyCheck = v end)
 
+    -- Minimap -------------------------------------------------------------------
+    -- This is the one thing that survives from the shared YippYapp page. Grouping is fixed on now -
+    -- there is always one YippYapp button - so the only choice left is whether BuffWarden is in it.
+    --
+    -- `~= false` and a guard on the function itself, so a library without it, or an answer it will not
+    -- give, both read as "shown" - which is the default and the safe way round: a tick that says hidden
+    -- when the icon is on screen sends somebody hunting for a bug.
+    L.Header("Minimap")
+    L.Check("Show BuffWarden in the minimap row",
+        "All the YippYapp addons share one minimap button; clicking it opens a row with an icon for "
+        .. "each. Untick this to leave BuffWarden out of that row. /bwarden still works, and so does "
+        .. "the addon compartment.",
+        function()
+            if not (LIB and LIB.IsMinimapButtonShown) then return true end
+            return LIB.IsMinimapButtonShown("BuffWarden") ~= false
+        end,
+        function(v)
+            if LIB and LIB.SetMinimapButtonShown then LIB.SetMinimapButtonShown("BuffWarden", v) end
+        end)
+
     -- Footer -------------------------------------------------------------------
     L.Gap(BEFORE_HEAD + BLOCK_GAP)
     local footer = f:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
@@ -439,12 +492,43 @@ function BW:BuildOptions()
     L.Gap(Wrap(footer, f) + 12)
     local height = -L.y
     f:SetHeight(height)
-    panel:SetHeight(height)
+
+    -- LIB.AddHelp draws on the PANEL, not on this scroll child, so the y has to be converted: `f` sits
+    -- 6 pixels below the panel's top, so a y measured in here is 6 further up out there. Six pixels is
+    -- invisible and still wrong, which is the only reason it is spelled out.
+    --
+    -- The page scrolls (we hand RegisterOptionsPage a height), so the PANEL has to be tall enough to
+    -- scroll as far as the help - otherwise the text exists and cannot be reached. AddHelp re-wraps
+    -- itself whenever the window is resized, and a narrower window means more lines, so the height is
+    -- taken again from LIB.HelpBottom on every refresh and on every resize rather than once here.
+    local function Fit()
+        if not (LIB and LIB.HelpBottom) then panel:SetHeight(height) return height end
+        local bottom = LIB.HelpBottom(panel)
+        local want = math.max(height, (bottom and -bottom or 0) + 12)
+        panel:SetHeight(want)
+        return want
+    end
+
+    local height2 = height
+    if LIB and LIB.AddHelp then
+        LIB.AddHelp(panel, HELP, L.y - 6 - 24)
+        height2 = Fit()
+        if LIB.OnOptionsResize then
+            -- Registered AFTER AddHelp's own hook, so the text has already re-wrapped by the time this
+            -- asks how far down it now reaches.
+            LIB.OnOptionsResize(panel, Fit)
+        end
+    else
+        panel:SetHeight(height)
+    end
 
     -- Fill in the current values whenever the page is shown. The panel itself may already count as
     -- "shown" when Settings adopts it (so its OnShow never fires): refresh from the scroll child's OnShow,
     -- from Settings' own OnRefresh, and once now.
-    local function Refresh() for _, r in ipairs(refreshers) do r() end end
+    local function Refresh()
+        for _, r in ipairs(refreshers) do r() end
+        if LIB and LIB.HelpBottom then Fit() end
+    end
     panel:HookScript("OnShow", Refresh)
     f:SetScript("OnShow", Refresh)
     panel.OnRefresh = Refresh
@@ -452,7 +536,7 @@ function BW:BuildOptions()
 
     -- Hosted in the YippYapp window (LibForever); an older lib without it gets a Blizzard page instead.
     if LIB and LIB.RegisterOptionsPage then
-        self.category = LIB.RegisterOptionsPage("BuffWarden", panel, "BuffWarden", height)
+        self.category = LIB.RegisterOptionsPage("BuffWarden", panel, "BuffWarden", height2)
         self.hosted = self.category ~= nil
     end
     if not self.category and Settings and Settings.RegisterCanvasLayoutCategory then

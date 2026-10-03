@@ -78,10 +78,9 @@ BuffWarden is part of **YippYapp**, a set of addons for WoW: Forever that work e
 works fully on its own. With more of them installed:
 
 - **One minimap button.** They share a single YippYapp button on the minimap. Click it for a row with each
-  addon's icon. There is also an optional launcher bar at the screen edge, off by default, that you can turn
-  on in the settings.
-- **One settings page.** Minimap and launcher buttons for all of them are under **Options → AddOns →
-  YippYapp**.
+  addon's icon. BuffWarden's own settings decide whether it appears in that row.
+- **One place for settings.** Each addon has its own page under **Options → AddOns → YippYapp**, and
+  BuffWarden's carries its help text at the bottom.
 - **One group in the AddOn list.** They appear together under **YippYapp** in the in-game AddOn list.
 - **AutoFeed** keeps one-button macros for your best food, water, potions, scrolls and bandages. Together
   they cover your buffs: BuffWarden the class buffs from you and your group, AutoFeed the scroll and food

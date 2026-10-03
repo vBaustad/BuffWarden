@@ -19,7 +19,10 @@ local defaults = {
     disabled     = {},      -- [buffKey] = true / false (overrides the buff's default)
     readyCheck   = true,    -- print what's missing on a ready check
     ignoreFar    = true,    -- leave out groupmates in another part of the zone (>200 yards)
-    placed       = false,   -- has the bar been dragged into place? (the welcome card asks until it has)
+    -- Write-only since the welcome card went: set when you drag the bar, printed by /bwarden status,
+    -- and nothing decides anything from it any more. Kept rather than dropped because removing a saved
+    -- key is a data migration, and it belongs with the notch* keys whenever those are cleaned up.
+    placed       = false,   -- has the bar been dragged into place?
     blessFor     = {},      -- ["Name-Realm"] = blessing kind the player picked for them
     blessForClass = {},     -- ["MAGE"] = blessing kind the player picked for every mage
     blessKings   = false,   -- Kings to everyone it is known for, even the Might classes
@@ -2333,7 +2336,7 @@ function BW:Report(prefix)
 end
 
 -- ---------------------------------------------------------------------------
--- Launcher, compartment, slash
+-- Minimap, compartment, slash
 -- ---------------------------------------------------------------------------
 -- Safe in combat: the bar itself only changes once combat ends (Apply waits), and we say so.
 function BW:SetLocked(locked)
@@ -2355,11 +2358,15 @@ end
 -- Family convention: left-click does the addon's main thing, right-click always opens its settings.
 -- BuffWarden's main thing is the bar, so left-click locks or unlocks it (unlocked shows the preview to
 -- drag). What's missing is listed by /bwarden status.
-local function OnLauncherClick(button)
+--
+-- Named for the icon rather than the launcher: this serves the minimap button and the addon
+-- compartment, and both of those stay. The launcher bar is gone, and a function still called
+-- OnLauncherClick would be the last thing in here claiming otherwise.
+local function OnIconClick(button)
     if button == "RightButton" then BW:OpenOptions() else ToggleLock() end
 end
 
-function BuffWarden_OnAddonCompartmentClick(_, button) OnLauncherClick(button) end
+function BuffWarden_OnAddonCompartmentClick(_, button) OnIconClick(button) end
 function BuffWarden_OnAddonCompartmentEnter(_, menuButton)
     GameTooltip:SetOwner(menuButton, "ANCHOR_LEFT")
     GameTooltip:AddLine(TAG)
@@ -2402,24 +2409,13 @@ function BW:PublishWeaponEnhancers()
     })
 end
 
-function BW:RegisterLauncher()
-    if not (LIB and LIB.RegisterLauncher) then return end
-    LIB.RegisterLauncher({
-        id = "BuffWarden", label = "BuffWarden", order = 45,
-        icon = "Interface\\AddOns\\BuffWarden\\Media\\notch",
-        onClick = OnLauncherClick,
-        status = function() return MissingText() end,
-        tooltip = { "Left-click: unlock/lock the bar", "Right-click: settings" },
-    }, self.db)
-end
-
--- Minimap button (LibDBIcon through LibForever). Left-click does what the launcher button does.
+-- Minimap button (LibDBIcon through LibForever), and now the only button BuffWarden registers.
 function BW:RegisterMinimap()
     if not (LIB and LIB.RegisterMinimapButton) then return end
     LIB.RegisterMinimapButton("BuffWarden", {
         icon = "Interface\\AddOns\\BuffWarden\\Media\\minimap",
         label = "BuffWarden",
-        OnClick = function(_, button) OnLauncherClick(button) end,
+        OnClick = function(_, button) OnIconClick(button) end,
         OnTooltipShow = function(tt)
             tt:AddLine("BuffWarden", 1, 0.82, 0.3)
             tt:AddLine(MissingText(), 1, 1, 1)
@@ -2649,8 +2645,6 @@ SlashCmdList.BUFFWARDEN = function(msg)
         end
     elseif cmd == "status" or cmd == "report" then
         BW:Report()
-    elseif cmd == "welcome" then
-        if LIB and LIB.OpenWelcome then LIB.OpenWelcome("BuffWarden") end
     elseif cmd == "help" then
         print(TAG .. " v" .. BW.version .. " commands:")
         print("  /bwarden  - open the settings")
@@ -2659,7 +2653,7 @@ SlashCmdList.BUFFWARDEN = function(msg)
         print("  /bwarden combat  - toggle hiding in combat")
         print("  /bwarden list | toggle <key>  - choose which buffs to watch")
         print("  /bwarden bless <name> <kind> | bless list  - which blessing someone gets")
-        print("  /bwarden status | welcome")
+        print("  /bwarden status")
     else
         if BW.OpenOptions then BW:OpenOptions() end
     end
@@ -2730,7 +2724,7 @@ function BW.SelfTest()
     -- The unlocked placeholders, which nothing else runs while the bar is locked.
     note("%d preview", #BW:BuildPreview())
 
-    -- Every tooltip on every button that is showing, then the launcher's line. Hidden buttons have
+    -- Every tooltip on every button that is showing, then the minimap's line. Hidden buttons have
     -- no entry to describe, so there is nothing to build for them.
     local tips = 0
     for _, b in ipairs(buttons) do
@@ -2754,7 +2748,7 @@ function BW.SelfTest()
     end
     GameTooltip:Hide()
     note("%d tooltips", tips)
-    note("launcher says %q", MissingText())
+    note("minimap says %q", MissingText())
 
     return true, table.concat(said, ", ")
 end
@@ -2835,12 +2829,15 @@ f:SetScript("OnEvent", function(_, event, unit, info)
         end
         BW.db = BuffWardenDB
         BW:CreateBar()
-        if BW.BuildOptions then BW:BuildOptions() end
-        BW:RegisterLauncher()
-        if LIB and LIB.RegisterSelfTest then LIB.RegisterSelfTest("BuffWarden", BW.SelfTest) end
+        -- Before BuildOptions, and that order is load-bearing now: the settings page has a "show me in
+        -- the minimap row" tick that asks LIB.IsMinimapButtonShown, and that answers FALSE for a button
+        -- which is not registered yet - not nil, so no guard can tell it apart from the player having
+        -- hidden it. Built the other way round the box started unticked and quietly corrected itself on
+        -- the next OnShow, which is the kind of wrong that nobody reports.
         BW:RegisterMinimap()
+        if BW.BuildOptions then BW:BuildOptions() end
+        if LIB and LIB.RegisterSelfTest then LIB.RegisterSelfTest("BuffWarden", BW.SelfTest) end
         BW:PublishWeaponEnhancers()
-        if BW.RegisterWelcome then BW:RegisterWelcome() end
         -- Range and expiry change without events; a slow tick catches them.
         C_Timer.NewTicker(5, function() if not InCombatLockdown() then BW:Refresh() end end)
         -- in combat only the weapon readout can change, and it costs two reads
