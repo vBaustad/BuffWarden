@@ -32,6 +32,8 @@ local defaults = {
     weaponBuffs  = true,    -- watch the temporary enchant on your weapons (stones, oils, imbues)
     weaponPref   = "auto",  -- "auto" (oil for mana classes, stone for the rest), "stone" or "oil"
     imbuePref    = "auto",  -- shaman: "auto" (best known) or the name of one imbue
+    mageImbuePref = "auto", -- mage: "auto" (best scroll you carry), one imbue's name, or "none"
+    familiarPref = "auto",  -- mage: "auto" (best scroll you carry), one familiar's name, or "none"
     poisonMain   = "auto",  -- rogue: "auto", a poison kind, or "none"
     poisonOff    = "auto",
 }
@@ -479,6 +481,59 @@ local function BestEnhancer(subClassID)
     return best
 end
 
+-- The best scroll of one family in your bags, honouring the player's choice and their level.
+--
+-- Shares enhancerCache, which is wiped on every bag change, so one `ForgetEnhancers` still covers
+-- everything that walks a bag. The key carries the family so the two cannot read each other's answer.
+--
+-- The LEVEL CHECK is not politeness: a scroll you cannot use yet is not an answer, and offering one
+-- would be the same mistake as the old range gate - an icon you cannot act on. `pref` naming a scroll
+-- you are not carrying falls back to the best you have rather than going silent, the way the poisons
+-- already do, because "you asked for Manablade and have none" is still worth an icon.
+local function BestScroll(family, tbl, pref)
+    if pref == "none" then return nil end
+    local key = "scroll:" .. family .. "|" .. tostring(pref)
+    local cached = enhancerCache[key]
+    if cached ~= nil then return cached or nil end
+    local level = UnitLevel("player") or 1
+    local best, bestRank, wanted
+    for bag = 0, LAST_BAG do
+        for slot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
+            local info = C_Container.GetContainerItemInfo(bag, slot)
+            local id = info and Clean(info.itemID)
+            local e = id and tbl[id]
+            if e and e.rank <= level then
+                if pref ~= "auto" and e.name == pref then
+                    wanted = { id = id, name = e.name, rank = e.rank }
+                elseif not bestRank or e.rank > bestRank then
+                    bestRank = e.rank
+                    best = { id = id, name = e.name, rank = e.rank }
+                end
+            end
+        end
+    end
+    local answer = wanted or best
+    enhancerCache[key] = answer or false
+    return answer
+end
+
+-- Am I carrying a particular scroll? Only the settings page asks, to grey out a choice you have run
+-- out of, so it walks the bags itself rather than going through the cache - which is keyed by
+-- preference and would answer about a different scroll.
+local function Carrying(tbl, name)
+    for bag = 0, LAST_BAG do
+        for slot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
+            local info = C_Container.GetContainerItemInfo(bag, slot)
+            local id = info and Clean(info.itemID)
+            local e = id and tbl[id]
+            if e and e.name == name then return true end
+        end
+    end
+    return false
+end
+function BW.CarryingImbue(name) return Carrying(BW.MAGE_IMBUES, name) end
+function BW.CarryingFamiliar(name) return Carrying(BW.MAGE_FAMILIARS, name) end
+
 -- What we'd offer for this weapon slot, or nil when there is nothing to say.
 local function WeaponEntry(w)
     local itemID, subClassID = EquippedWeapon(w.inv)
@@ -495,6 +550,11 @@ local function WeaponEntry(w)
         -- A shaman imbues the weapon with a spell. The imbue goes on the main hand, so only that one.
         local pref = BW.db.imbuePref
         imbue = (pref ~= "auto" and Knows(pref) and pref) or FirstKnown(BW.SHAMAN_IMBUES)
+    elseif myClass == "MAGE" and w.slot == 0 then
+        -- Forever's mage imbue scrolls go on the main hand, like a shaman's imbue - but they come out
+        -- of the bag rather than being cast, so they travel the item path and not the spell one.
+        item = BestScroll("imbue", BW.MAGE_IMBUES, BW.db.mageImbuePref)
+        if not item and BW.db.mageImbuePref == "none" then return nil end
     elseif myClass == "ROGUE" then
         -- Rogues coat each weapon separately, and which poison goes where is the player's choice.
         local pref = (w.slot == 0) and BW.db.poisonMain or BW.db.poisonOff
@@ -1052,6 +1112,27 @@ function BW:Compute()
                     end
                 end
 
+            elseif def.scope == "familiar" then
+                -- An ordinary self buff that is fixed from the bag rather than cast. The aura is on
+                -- YOU - the summon targets a summon point, the stat aura targets the caster - so this
+                -- needs no pet API; "is one out" is the same question as "is a buff up".
+                -- `def.class == myClass`, NOT the `mine` above: that is class AND FirstKnown(cast),
+                -- and cast is empty here on purpose - there is no spell to learn - so `mine` is nil for
+                -- a mage too and this branch would never have run.
+                if def.class == myClass and not me.unreadable and BW.db.familiarPref ~= "none" then
+                    local up, left = HasBuff(me.auras, def.names)
+                    local scroll = BestScroll("familiar", BW.MAGE_FAMILIARS, BW.db.familiarPref)
+                    local expiring = up and left and left <= BW.db.threshold and left or nil
+                    -- No scroll in the bag means no icon, exactly as with a weapon enhancer: an icon
+                    -- you cannot act on is nagging, and these are consumables you run out of.
+                    if scroll and (not up or expiring) then
+                        entries[#entries + 1] = { key = def.key, def = def, mode = "item",
+                            spell = scroll.name, item = scroll, expiring = expiring,
+                            left = left, icon = (C_Item.GetItemIconByID
+                                and C_Item.GetItemIconByID(scroll.id)) or BW.IconFor(def) }
+                    end
+                end
+
             elseif def.scope == "self" and def.palette and BW.db.blessRow
                 and def.class == myClass then
                 -- These go on the row instead of into the reminders, the same way blessings do when
@@ -1346,6 +1427,18 @@ local function ButtonOnEnter(self)
         GameTooltip:Show()
         return
     end
+    if e.mode == "item" then
+        local label = (C_Item.GetItemNameByID and C_Item.GetItemNameByID(e.item.id)) or e.spell
+        if e.expiring then
+            GameTooltip:AddLine(("Running out: %s left."):format(FmtTime(e.left)), 1, 0.45, 0.1)
+        else
+            GameTooltip:AddLine("You have none of this up.", 1, 1, 1)
+        end
+        GameTooltip:AddLine(("Click to use %s."):format(label), 1, 1, 1)
+        if e.def and e.def.note then GameTooltip:AddLine(e.def.note, 0.6, 0.6, 0.6, true) end
+        GameTooltip:Show()
+        return
+    end
     if e.mode == "weapon" then
         GameTooltip:AddLine(e.label .. ": " .. (e.expiring and "running out" or "no weapon buff"), 1, 1, 1)
         if e.imbue then
@@ -1625,6 +1718,10 @@ function BW:Apply(entries)
             -- placeholders get no click action at all: nothing pretend can reach a macro
         elseif e.mode == "food" then
             if e.macro then typ, macroName = "macro", e.macro end
+        elseif e.mode == "item" then
+            -- One line, no weapon slot: a familiar scroll acts on you. The two-step the oils use is
+            -- for an enchant that needs pointing at a weapon, and there is nothing to point at here.
+            typ, macro = "macro", ("/use item:%d"):format(e.item.id)
         elseif e.mode == "weapon" then
             if e.imbue then
                 typ, spell = "spell", e.imbue          -- a shaman imbue goes on the weapon by itself
@@ -2320,6 +2417,8 @@ function BW:Report(prefix)
     for _, e in ipairs(entries) do
         if e.mode == "food" then
             cast[#cast + 1] = "Well Fed"
+        elseif e.mode == "item" then
+            cast[#cast + 1] = e.spell .. (e.expiring and " (running out)" or "")
         elseif e.mode == "weapon" then
             cast[#cast + 1] = e.label .. ": " .. (e.expiring and "running out" or "no weapon buff")
         elseif e.mode == "count" then
@@ -2459,6 +2558,24 @@ SlashCmdList.BUFFWARDEN = function(msg)
         BW:ApplyCombatSetting()
         print(TAG .. ": " .. (db.hideInCombat and "hidden in combat" or "shown in combat")
             .. (InCombatLockdown() and " (from the next fight)." or "."))
+    elseif cmd == "imbue" then
+        -- The one thing nobody has confirmed: mage imbues apply their enchantment through spell effect
+        -- 360, while oils and the shaman's modern Flametongue use 54, which is the documented
+        -- temporary-enchant effect. If 360 lands in the same slot this reads it; if it does not, this
+        -- prints "nothing on it" while your weapon is imbued, and we will know in one look instead of
+        -- reasoning about it a fourth time.
+        for _, w in ipairs(WEAPON_SLOTS) do
+            local st = WeaponEnchant(w.slot)
+            if not st then
+                print(TAG .. ": " .. w.label .. " - the slot has nothing to say (nil).")
+            else
+                print((TAG .. ": %s - %s, %s left, icon=%s kind=%s"):format(w.label,
+                    st.left > 0 and "something is on it" or "nothing on it",
+                    FmtTime(st.left or 0), tostring(st.icon), tostring(st.kind)))
+            end
+        end
+        local best = BestScroll("imbue", BW.MAGE_IMBUES, db.mageImbuePref)
+        print(TAG .. ": best imbue scroll in your bags: " .. (best and best.name or "none"))
     elseif cmd == "resting" then
         db.hideResting = not db.hideResting
         BW:Refresh()
@@ -2653,7 +2770,7 @@ SlashCmdList.BUFFWARDEN = function(msg)
         print("  /bwarden combat  - toggle hiding in combat")
         print("  /bwarden list | toggle <key>  - choose which buffs to watch")
         print("  /bwarden bless <name> <kind> | bless list  - which blessing someone gets")
-        print("  /bwarden status")
+        print("  /bwarden status | imbue")
     else
         if BW.OpenOptions then BW:OpenOptions() end
     end

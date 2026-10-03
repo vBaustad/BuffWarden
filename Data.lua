@@ -309,6 +309,15 @@ BW.BUFFS = {
       note = "The buff from eating proper food. With AutoFeed installed, a click eats your best food.",
       icon = "Interface\\Icons\\Spell_Misc_Food" },
 
+    -- A mage familiar: an hour of Intellect that happens to bring an animal with it. `cast` is empty
+    -- on purpose - there is no spell to learn, the scroll in your bag does it - so this entry is found
+    -- by its aura and fixed by an item, which is the same shape as Well Fed above.
+    { key = "familiar", spellID = 1302303, class = "MAGE", scope = "familiar",
+      names = { "Cat Familiar", "Frog Familiar", "Rat Familiar" },
+      cast = {},
+      note = "Needs a familiar scroll in your bags. Lasts an hour, and only one can be out.",
+      icon = "Interface\\Icons\\Spell_Nature_Polymorph" },
+
     -- Short buffs -------------------------------------------------------------
     -- Battle Shout is short (its duration is read from the aura) and costs rage, which drains to nothing
     -- out of combat. Buffs can't be
@@ -398,6 +407,75 @@ BW.FISHING_POLE_SUBCLASS = 20
 
 -- Shaman weapon imbues, best first for the automatic choice. The spell goes on the main hand.
 BW.SHAMAN_IMBUES = { "Windfury Weapon", "Flametongue Weapon", "Frostbrand Weapon", "Rockbiter Weapon" }
+
+-- Mage scrolls ---------------------------------------------------------------
+-- Forever gives mages a scroll system of their own: 40 items with AllowableClass 128, which is mage
+-- and nothing else. Two families of them are buffs, which is what a comment on the addon asked for,
+-- and the rest are abilities - Cryoblast is a nuke, Polymorph is Polymorph. Those are deliberately
+-- absent: a reminder about a nuke is not a reminder.
+--
+-- RANK IS THE SCROLL'S OWN REQUIRED LEVEL, which is the game saying which is stronger rather than us
+-- deciding. That matters most for the imbues, where the sixteen are not ranks of one thing but
+-- different effects at different levels - Flame and Manablade do unrelated jobs - so there is no way
+-- to order them by goodness, and "auto" means the highest-level one you are carrying. Someone who
+-- wants Manablade asks for Manablade.
+--
+-- These go on the weapon the way an oil does: used out of the bag, not cast. So they travel the ITEM
+-- path, and the one thing nobody has confirmed in game is whether the imbue then shows up in the
+-- temporary enchant slot that C_Item.GetWeaponEnchantInfo reports. The mage imbues apply their
+-- enchantment through spell effect 360, while oils and the shaman's modern Flametongue use 54, which
+-- IS the temporary-enchant effect. 360 is also what the shaman's older ranks use, so it is probably
+-- the same thing - but probably is not knowledge, and `/bwarden debug` prints what the slot actually
+-- says so the question takes one look rather than another round of reasoning.
+BW.MAGE_IMBUES = {
+    [274947] = { name = "Lesser Flame",  rank = 5 },
+    [275067] = { name = "Chillknife",    rank = 5 },
+    [277485] = { name = "Frost",         rank = 16 },
+    [277486] = { name = "Striking",      rank = 16 },
+    [277487] = { name = "Baleflame",     rank = 16 },
+    [277488] = { name = "Iceknife",      rank = 16 },
+    [277489] = { name = "Spark",         rank = 16 },
+    [277494] = { name = "Accuracy",      rank = 25 },
+    [277495] = { name = "Quickening",    rank = 25 },
+    [277496] = { name = "Balefrost",     rank = 25 },
+    [277497] = { name = "Flame",         rank = 25 },
+    [277498] = { name = "Manablade",     rank = 25 },
+    [277500] = { name = "Greater Flame", rank = 46 },
+    [277501] = { name = "Greater Frost", rank = 46 },
+    [277502] = { name = "Precision",     rank = 46 },
+    [277503] = { name = "Spellbreak",    rank = 46 },
+}
+
+-- In the order the settings page offers them, which is the order they become available.
+BW.MAGE_IMBUE_CHOICES = { "auto", "Lesser Flame", "Chillknife", "Frost", "Striking", "Baleflame",
+    "Iceknife", "Spark", "Accuracy", "Quickening", "Balefrost", "Flame", "Manablade",
+    "Greater Flame", "Greater Frost", "Precision", "Spellbreak", "none" }
+BW.MAGE_IMBUE_LABEL = setmetatable({
+    auto = "Automatic (the best one in your bags)",
+    none = "Don't remind me about imbues",
+}, { __index = function(_, k) return "Imbue " .. tostring(k) end })
+
+-- The familiars ARE strict tiers, unlike the imbues: all three apply the same aura to you - MOD_STAT
+-- on Intellect - and only the amount changes, +2, +6, +12. So "the best one you can use" is a real
+-- answer here, and the preference exists only for somebody hoarding the good scrolls.
+--
+-- They last an hour, so they expire like any other buff and the usual warning applies. And the aura
+-- lands on the CASTER, not on the pet: the summon effect targets a summon point while the stat aura
+-- targets unit 1, the caster. That is why this needs no pet API at all - it is an ordinary buff on you
+-- that happens to bring an animal along.
+BW.MAGE_FAMILIARS = {
+    [275069] = { name = "Rat Familiar",  rank = 5 },
+    [277483] = { name = "Frog Familiar", rank = 16 },
+    [277493] = { name = "Cat Familiar",  rank = 25 },
+}
+BW.FAMILIAR_CHOICES = { "auto", "Cat Familiar", "Frog Familiar", "Rat Familiar", "none" }
+BW.FAMILIAR_LABEL = {
+    auto = "Automatic (the best one in your bags)",
+    ["Cat Familiar"] = "Cat (+12 Intellect)",
+    ["Frog Familiar"] = "Frog (+6 Intellect)",
+    ["Rat Familiar"] = "Rat (+2 Intellect)",
+    none = "Don't remind me about familiars",
+}
 BW.IMBUE_LABEL = {
     auto = "Best one I know",
     ["Windfury Weapon"] = "Windfury Weapon",

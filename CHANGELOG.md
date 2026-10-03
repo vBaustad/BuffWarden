@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Mages: BuffWarden now watches your familiar and your weapon imbue.** Forever gives mages their own scrolls, and two kinds of them are buffs worth being reminded about. A familiar is an hour of Intellect, so it gets an icon when none is out and a click uses the best scroll in your bags - Cat, Frog or Rat, whichever you can use. An imbue goes on your main hand alongside the stones and oils BuffWarden already watches, and there are sixteen of them; "automatic" means the best one you are carrying, or you can name the one you want. Neither ever shows up unless you are actually carrying a scroll you can use: these run out, and an icon you cannot act on is just nagging. Both can be switched off, and `/bwarden imbue` prints what the game says is on your weapon right now.
+
 - **The welcome window and the launcher bar are gone; their help text is on the settings page.** There used to be two ways in - a welcome window with a page per addon, and an optional bar at the screen edge - and now there is one: the minimap button, or `/bwarden`. Everything BuffWarden's welcome page explained ("What it shows", "One click to fix it", "Move, lock and settings") is at the bottom of its settings page, where somebody looking for help actually goes. `/bwarden welcome` is gone with the window.
 - **New setting: show BuffWarden in the minimap row.** All the YippYapp addons share one minimap button, and clicking it opens a row of their icons. This decides whether BuffWarden is in that row. It used to live on a shared YippYapp settings page, which has gone; there is no longer a toggle for grouping, because there is now always one grouped button.
 

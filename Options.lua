@@ -410,7 +410,8 @@ function BW:BuildOptions()
     -- Weapon buffs ---------------------------------------------------------------
     L.Header("Weapon buffs")
     L.Check("Watch the buff on my weapons",
-        "Sharpening stones, weightstones, oils and shaman imbues. Nothing is shown unless you have a "
+        "Sharpening stones, weightstones, oils, shaman imbues and a mage's imbue scrolls. Nothing is "
+        .. "shown unless you have a "
         .. "usable stone or oil in your bags (or the imbue spell), and never for a fishing pole. This is "
         .. "the one buff BuffWarden can still read during combat, so it also shows there.",
         function() return db.weaponBuffs end,
@@ -429,6 +430,42 @@ function BW:BuildOptions()
             imbueLabels,
             function() return db.imbuePref end,
             function(v) db.imbuePref = v; BW:Refresh() end)
+    elseif myClass == "MAGE" then
+        -- Forever's mage imbue scrolls. Bag items, like the poisons below rather than the shaman
+        -- imbues above, so the list says which ones you are out of instead of which you have trained.
+        -- It also marks the ones your level is too low for, because a scroll you cannot use yet is a
+        -- different kind of "no" from one you have run out of.
+        local level = UnitLevel("player") or 1
+        local rankOf = {}
+        for _, e in pairs(BW.MAGE_IMBUES) do rankOf[e.name] = e.rank end
+        local imbueLabels = setmetatable({}, { __index = function(_, k)
+            local label = BW.MAGE_IMBUE_LABEL[k]
+            if k == "auto" or k == "none" then return label end
+            if (rankOf[k] or 0) > level then
+                return label .. (" |cffff5555(level %d)|r"):format(rankOf[k])
+            end
+            if not BW.CarryingImbue(k) then return label .. " |cffff5555(none left)|r" end
+            return label
+        end })
+        L.Cycle("Weapon imbue scroll", "Which imbue to remind you about on your main hand. Nothing is "
+            .. "shown unless you are carrying a scroll you can use. Pick one you have none of and "
+            .. "BuffWarden offers the best you do have, rather than going quiet.",
+            BW.MAGE_IMBUE_CHOICES, imbueLabels,
+            function() return db.mageImbuePref end,
+            function(v) db.mageImbuePref = v; BW.ForgetEnhancers(); BW:Refresh() end)
+
+        local famLabels = setmetatable({}, { __index = function(_, k)
+            local label = BW.FAMILIAR_LABEL[k] or tostring(k)
+            if k == "auto" or k == "none" then return label end
+            if not BW.CarryingFamiliar(k) then return label .. " |cffff5555(none left)|r" end
+            return label
+        end })
+        L.Cycle("Familiar", "Which familiar scroll to remind you about. All three give Intellect for an "
+            .. "hour and only the amount differs, so Automatic means the best one in your bags - pick a "
+            .. "smaller one if you are saving the good scrolls.",
+            BW.FAMILIAR_CHOICES, famLabels,
+            function() return db.familiarPref end,
+            function(v) db.familiarPref = v; BW.ForgetEnhancers(); BW:Refresh() end)
     elseif myClass == "ROGUE" then
         -- Poisons are bag items, so "you cannot use that" means "none on you", and it changes as
         -- you shop. The list stays whole and says which ones you are out of.
