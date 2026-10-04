@@ -1,6 +1,6 @@
 # BuffWarden
 
-## Unreleased
+## 0.1.0-beta8
 
 - **Mages: BuffWarden now watches your familiar and your weapon imbue.** Forever gives mages their own scrolls, and two kinds of them are buffs worth being reminded about. A familiar is an hour of Intellect, so it gets an icon when none is out and a click uses the best scroll in your bags - Cat, Frog or Rat, whichever you can use. An imbue goes on your main hand alongside the stones and oils BuffWarden already watches, and there are sixteen of them; "automatic" means the best one you are carrying, or you can name the one you want. Neither ever shows up unless you are actually carrying a scroll you can use: these run out, and an icon you cannot act on is just nagging. Both can be switched off, and `/bwarden imbue` prints what the game says is on your weapon right now.
 
