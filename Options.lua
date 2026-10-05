@@ -19,7 +19,6 @@ local refreshers = {}
 -- Rhythm, top to bottom: BEFORE_HEAD before a heading, AFTER_HEAD under it, a control row, then
 -- TEXT_GAP to that control's own description, then BLOCK_GAP before whatever comes next.
 local PAD = 8            -- left edge inside the page
-local INDENT = 26        -- a description, or a control, sits here under the thing it belongs to
 local CONTROL_X = 200    -- every label's control starts here, so the rows line up with each other
 -- The real page is 544 wide (LIB.OptionsWidth answers that). 468 is a deliberate FLOOR, not a stale
 -- guess: paragraphs are anchored to both edges so they wrap to whatever width the window actually
@@ -70,25 +69,58 @@ local function Wrap(fs, parent, indent)
     return h
 end
 
+-- A hoverable (i) beside a label, carrying the explanation that used to be a paragraph underneath it.
+--
+-- The page was a wall of prose: 22 controls, every one with two or three lines of grey text under it,
+-- and the switches a player came for scrolled off the bottom. The buff grid had already been doing it
+-- this way - 20-odd checkboxes whose only explanation is their tooltip - so this makes the rest of the
+-- page agree with the part of it nobody complained about.
+--
+-- It is a Button rather than a FontString because it needs OnEnter, and it is drawn in the accent blue
+-- so it reads as something to point at rather than as punctuation. Nothing is lost by hiding the text:
+-- the long-form help is still at the bottom of the page, in full, through LIB.AddHelp.
+local INFO_SIZE = 14
+local function Info(parent, after, text, extra)
+    if not text and not extra then return nil end
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(INFO_SIZE, INFO_SIZE)
+    -- Clear of the label by more than the label is clear of the checkbox: L.Check extends the box's
+    -- hit rect over its own label (width + 8), so an (i) sitting 6 pixels past the text would be
+    -- inside it and a click meant for the tooltip would toggle the setting instead.
+    b:SetPoint("LEFT", after, "RIGHT", 10, 0)
+    local glyph = b:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    glyph:SetAllPoints()
+    glyph:SetText("|cff66ccffi|r")
+    b:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if text then GameTooltip:AddLine(text, 1, 1, 1, true) end
+        if extra then GameTooltip:AddLine(extra, 0.7, 0.7, 0.7, true) end
+        GameTooltip:Show()
+        glyph:SetText("|cffffffffi|r")
+    end)
+    b:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+        glyph:SetText("|cff66ccffi|r")
+    end)
+    b.glyph = glyph
+    b.infoText = text or extra
+    return b
+end
+
 -- Everything is laid out top to bottom with a running y, so sections never overlap or leave holes.
 local function Layout(parent)
     local L = { y = -6 }
 
     function L.Gap(h) L.y = L.y - h end
 
-    function L.Header(text)
+    -- A section heading, with its introduction on an (i) rather than as a paragraph beneath it.
+    function L.Header(text, note)
         L.Gap(BEFORE_HEAD)
         local h = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
         h:SetPoint("TOPLEFT", PAD, L.y)
         h:SetText(text)
+        Info(parent, h, note)
         L.Gap(AFTER_HEAD)
-    end
-
-    function L.Note(text, indent)
-        local n = parent:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-        n:SetPoint("TOPLEFT", PAD + (indent or 0), L.y)
-        n:SetText(text)
-        L.Gap(Wrap(n, parent, indent) + BLOCK_GAP)
     end
 
     -- A checkbox at (x, current y); note (optional) goes under the label. Returns the checkbox.
@@ -111,10 +143,11 @@ local function Layout(parent)
             cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
         end
         refreshers[#refreshers + 1] = function() cb:SetChecked(get()) end
-        if note then
-            L.Gap(ROW_H + TEXT_GAP)
-            L.Note(note, INDENT)
-        end
+        -- One row per setting. Only `note` - the paragraph that used to sit underneath - becomes an
+        -- (i); `tooltip` stays on the box itself, because the one caller that uses it is the buff grid,
+        -- which was already hover-only and has no room for a glyph in its second column.
+        Info(parent, l, note)
+        L.Gap(ROW_H + BLOCK_GAP - TEXT_GAP)
         return cb
     end
 
@@ -136,11 +169,11 @@ local function Layout(parent)
             show()
         end)
         refreshers[#refreshers + 1] = show
-        L.Gap(ROW_H + TEXT_GAP)
-        if note then L.Note(note, INDENT) else L.Gap(BLOCK_GAP - TEXT_GAP) end
+        Info(parent, l, note)
+        L.Gap(ROW_H + BLOCK_GAP - TEXT_GAP)
     end
 
-    -- "label [-] value [+]" with a note under it; value shown by fmt(get()).
+    -- "label [-] value [+]"; the explanation is on the (i) beside the label.
     function L.Stepper(label, note, get, set, step, lo, hi, fmt)
         local l = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
         l:SetPoint("TOPLEFT", PAD, L.y - 5)
@@ -160,8 +193,8 @@ local function Layout(parent)
         minus:SetScript("OnClick", function() set(math.max(lo, get() - step)); show() end)
         plus:SetScript("OnClick", function() set(math.min(hi, get() + step)); show() end)
         refreshers[#refreshers + 1] = show
-        L.Gap(ROW_H + TEXT_GAP)
-        if note then L.Note(note, INDENT) else L.Gap(BLOCK_GAP - TEXT_GAP) end
+        Info(parent, l, note)
+        L.Gap(ROW_H + BLOCK_GAP - TEXT_GAP)
     end
 
     -- The blessing pickers offer what this paladin has trained and nothing else: picking a blessing
@@ -191,10 +224,10 @@ local function Layout(parent)
     local CLASS_LABEL_W = 64
     local CLASS_COL = math.floor(MEASURE_W / 2)   -- 234: label, button, and air before the next one
     function L.BlessingClasses()
-        L.Header("Blessing by class")
-        L.Note("The defaults: Kings for anyone with a mana bar who never heals, Wisdom for the "
-            .. "classes that might be your healer, Might for pure melee. Set a class here and every "
-            .. "one of them gets it, whatever we would have picked. One person can still be set below.")
+        L.Header("Blessing by class",
+            "The defaults: Kings for anyone with a mana bar who never heals, Wisdom for the classes "
+            .. "that might be your healer, Might for pure melee. Set a class here and every one of them "
+            .. "gets it, whatever we would have picked. One person can still be set below.")
         local rowY = L.y
         for i, class in ipairs(BW.BLESSING_CLASS_ORDER) do
             local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
@@ -230,10 +263,10 @@ local function Layout(parent)
     -- Who gets which blessing: one row per groupmate, filled in from the live group whenever the page
     -- is shown. Five rows is a full party; a raid shows your own group.
     function L.Blessings()
-        L.Header("Who gets which blessing")
-        L.Note("Anyone left on \"Class default\" follows the list above. You are the exception: you "
-            .. "get Might unless you have trained the healer talents, since you are the one meleeing. "
-            .. "The icon's tooltip always says which blessing and why.")
+        L.Header("Who gets which blessing",
+            "Anyone left on \"Class default\" follows the list above. You are the exception: you get "
+            .. "Might unless you have trained the healer talents, since you are the one meleeing. The "
+            .. "icon's tooltip always says which blessing and why.")
         local rows = {}
         for i = 1, 5 do
             local label = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
@@ -352,8 +385,8 @@ function BW:BuildOptions()
         function(v) db.ignoreFar = v; BW:Refresh() end)
 
     -- Which buffs --------------------------------------------------------------
-    L.Header("Which buffs")
-    L.Note("Untick a buff to stop watching it. Your own class's buffs show as gold (you cast them); group "
+    L.Header("Which buffs",
+        "Untick a buff to stop watching it. Your own class's buffs show as gold (you cast them); group "
         .. "buffs from other classes show as grey (you ask for them). The three marked Tracking are not "
         .. "buffs at all - they are the minimap's ore, herb and treasure tracking, which you only ever "
         .. "turn on once. Untick one and BuffWarden stops mentioning it.")
