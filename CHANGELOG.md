@@ -1,6 +1,6 @@
 # BuffWarden
 
-## Unreleased
+## 0.1.0-beta9
 
 - **The settings page is compact: explanations moved onto a hoverable (i).** Every one of the 22 settings used to carry two or three lines of grey text underneath it, so the switches you came for were pushed off the bottom of the page. Each label now has a small blue **i** beside it; point at it and you get the same explanation, word for word. Nothing was shortened and nothing was dropped - and the long-form help is still at the foot of the page in full. The list of buffs is unchanged, because it already worked this way: its explanation has always been on the tick box's own tooltip.
 
