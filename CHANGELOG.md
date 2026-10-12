@@ -1,5 +1,11 @@
 # BuffWarden
 
+## Unreleased
+
+- **Settings: the tick boxes say what they actually cover.** One tick governs all five blessings, but it was labelled "Blessing of Might", so the list looked like it was missing the other four. The same was true of the paladin aura, hunter aspect, shaman shield, mage and warlock armour, and the mage familiar - each named after one member of the family it controls. They read **Blessings**, **Aura**, **Aspect**, **Shield**, **Armor** and **Familiar** now. Buffs that come in ranks keep their spell's name, because "Power Word: Fortitude" is what people call it.
+- **Fixed: the text on the choice buttons ran outside the button.** They were a fixed 268 pixels wide on a page that is 544, so anything long spilled over the edge. They take the width the window gives them now, and a value too long for even that is cut off rather than printed over the border.
+- **Fixed: "Main hand poison" had no explanation, and "Off hand poison" showed the main hand's.** Both now have their own, and "Automatic" names the poison for that hand - Instant on the main, Deadly on the off hand - instead of one sentence about both on both rows.
+
 ## 0.1.0-beta9
 
 - **The settings page is compact: explanations moved onto a hoverable (i).** Every one of the 22 settings used to carry two or three lines of grey text underneath it, so the switches you came for were pushed off the bottom of the page. Each label now has a small blue **i** beside it; point at it and you get the same explanation, word for word. Nothing was shortened and nothing was dropped - and the long-form help is still at the foot of the page in full. The list of buffs is unchanged, because it already worked this way: its explanation has always been on the tick box's own tooltip.
