@@ -236,7 +236,7 @@ BW.BUFFS = {
       names = { "Mark of the Wild", "Gift of the Wild" },
       cast = { "Mark of the Wild" },
       icon = "Interface\\Icons\\Spell_Nature_Regeneration" },
-    { key = "blessing", spellID = 19740, class = "PALADIN", scope = "blessing", minLevel = 4,
+    { key = "blessing", label = "Blessings", spellID = 19740, class = "PALADIN", scope = "blessing", minLevel = 4,
       names = BLESSINGS,
       -- Core picks the blessing per target (BLESSING_BY_CLASS and the player's overrides); this
       -- list is only asked "do you know any blessing at all", so its order means nothing.
@@ -247,11 +247,11 @@ BW.BUFFS = {
     { key = "innerfire", spellID = 588, class = "PRIEST", scope = "self",
       names = { "Inner Fire" }, cast = { "Inner Fire" },
       icon = "Interface\\Icons\\Spell_Holy_InnerFire" },
-    { key = "magearmor", spellID = 168, class = "MAGE", scope = "self",
+    { key = "magearmor", label = "Armor", spellID = 168, class = "MAGE", scope = "self",
       names = { "Frost Armor", "Ice Armor", "Mage Armor", "Molten Armor" },
       cast = { "Molten Armor", "Mage Armor", "Ice Armor", "Frost Armor" },
       icon = "Interface\\Icons\\Spell_Frost_FrostArmor02" },
-    { key = "demonarmor", spellID = 687, class = "WARLOCK", scope = "self",
+    { key = "demonarmor", label = "Armor", spellID = 687, class = "WARLOCK", scope = "self",
       names = { "Demon Skin", "Demon Armor", "Fel Armor" },
       cast = { "Fel Armor", "Demon Armor", "Demon Skin" },
       icon = "Interface\\Icons\\Spell_Shadow_RagingScream" },
@@ -265,13 +265,13 @@ BW.BUFFS = {
     -- Hunter aspects, warlock armours and shaman shields are the same shape. They are deliberately
     -- NOT marked: the row is a paladin thing today, and marking them would put a palette on classes
     -- that have never had one without anybody having asked for it.
-    { key = "aura", spellID = 465, class = "PALADIN", scope = "self", palette = true,
+    { key = "aura", label = "Aura", spellID = 465, class = "PALADIN", scope = "self", palette = true,
       names = { "Devotion Aura", "Retribution Aura", "Concentration Aura", "Sanctity Aura",
                 "Shadow Resistance Aura", "Frost Resistance Aura", "Fire Resistance Aura",
                 "Crusader Aura" },
       cast = { "Devotion Aura" },
       icon = "Interface\\Icons\\Spell_Holy_DevotionAura" },
-    { key = "aspect", spellID = 13165, class = "HUNTER", scope = "self",
+    { key = "aspect", label = "Aspect", spellID = 13165, class = "HUNTER", scope = "self",
       names = { "Aspect of the Hawk", "Aspect of the Monkey", "Aspect of the Cheetah",
                 "Aspect of the Pack", "Aspect of the Wild", "Aspect of the Beast",
                 "Aspect of the Viper", "Aspect of the Dragonhawk" },
@@ -280,7 +280,7 @@ BW.BUFFS = {
     { key = "trueshot", spellID = 19506, class = "HUNTER", scope = "self",
       names = { "Trueshot Aura" }, cast = { "Trueshot Aura" },
       icon = "Interface\\Icons\\Ability_TrueShot" },
-    { key = "shield", spellID = 324, class = "SHAMAN", scope = "self",
+    { key = "shield", label = "Shield", spellID = 324, class = "SHAMAN", scope = "self",
       names = { "Lightning Shield", "Water Shield" },
       cast = { "Water Shield", "Lightning Shield" },
       icon = "Interface\\Icons\\Spell_Nature_LightningShield" },
@@ -312,7 +312,9 @@ BW.BUFFS = {
     -- A mage familiar: an hour of Intellect that happens to bring an animal with it. `cast` is empty
     -- on purpose - there is no spell to learn, the scroll in your bag does it - so this entry is found
     -- by its aura and fixed by an item, which is the same shape as Well Fed above.
-    { key = "familiar", spellID = 1302303, class = "MAGE", scope = "familiar",
+    -- `label` because this one tick covers Cat, Frog and Rat: named from its spellID it read as
+    -- "Cat Familiar", which is the icon's spell and not what the setting does.
+    { key = "familiar", label = "Familiar", spellID = 1302303, class = "MAGE", scope = "familiar",
       names = { "Cat Familiar", "Frog Familiar", "Rat Familiar" },
       cast = {},
       note = "Needs a familiar scroll in your bags. Lasts an hour, and only one can be out.",
@@ -451,7 +453,7 @@ BW.MAGE_IMBUE_CHOICES = { "auto", "Lesser Flame", "Chillknife", "Frost", "Striki
     "Iceknife", "Spark", "Accuracy", "Quickening", "Balefrost", "Flame", "Manablade",
     "Greater Flame", "Greater Frost", "Precision", "Spellbreak", "none" }
 BW.MAGE_IMBUE_LABEL = setmetatable({
-    auto = "Automatic (the best one in your bags)",
+    auto = "Automatic",
     none = "Don't remind me about imbues",
 }, { __index = function(_, k) return "Imbue " .. tostring(k) end })
 
@@ -470,7 +472,7 @@ BW.MAGE_FAMILIARS = {
 }
 BW.FAMILIAR_CHOICES = { "auto", "Cat Familiar", "Frog Familiar", "Rat Familiar", "none" }
 BW.FAMILIAR_LABEL = {
-    auto = "Automatic (the best one in your bags)",
+    auto = "Automatic",
     ["Cat Familiar"] = "Cat (+12 Intellect)",
     ["Frog Familiar"] = "Frog (+6 Intellect)",
     ["Rat Familiar"] = "Rat (+2 Intellect)",
@@ -511,8 +513,12 @@ BW.POISONS = {
 -- What to offer when the player hasn't chosen: Instant on the main hand, Deadly on the off hand.
 BW.POISON_AUTO = { [0] = "instant", [1] = "deadly" }
 BW.POISON_CHOICES = { "auto", "instant", "deadly", "wound", "crippling", "mindnumbing", "none" }
+-- `auto` is deliberately bare: what "automatic" means depends on WHICH HAND is asking, and the
+-- settings page fills that in from POISON_AUTO above rather than repeating the answer here. It used to
+-- read "Automatic (Instant on main, Deadly on off hand)" and was shown as the value of both rows, so
+-- the off-hand row named the main hand as well and the two rows read identically.
 BW.POISON_LABEL = {
-    auto = "Automatic (Instant on main, Deadly on off hand)",
+    auto = "Automatic",
     instant = "Instant Poison", deadly = "Deadly Poison", wound = "Wound Poison",
     crippling = "Crippling Poison", mindnumbing = "Mind-numbing Poison",
     none = "Don't remind me for this hand",

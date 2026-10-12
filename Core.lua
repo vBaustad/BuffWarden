@@ -1265,9 +1265,16 @@ function BW.IconFor(def)
     return (def.spellID and C_Spell.GetSpellTexture(def.spellID)) or def.icon
 end
 
+-- Published, because Options.lua had the same four-step fallback written out again and two copies
+-- of one rule drift apart the moment either is extended.
 local function SpellName(def)
-    return (def.spellID and C_Spell.GetSpellName(def.spellID)) or def.cast[1] or def.names[1] or def.key
+    -- `label` first, for an entry that is not any one spell. The familiar def carries the Cat's
+    -- spellID so it has an icon, and the settings page was therefore calling the whole setting "Cat
+    -- Familiar" - a tick that governs Cat, Frog and Rat alike.
+    return def.label or (def.spellID and C_Spell.GetSpellName(def.spellID))
+        or def.cast[1] or def.names[1] or def.key
 end
+BW.DisplayName = SpellName
 
 -- What the bar shows while unlocked: your class's real buffs, plus group buffs you'd get from others,
 -- in each of the looks the bar can have. Placeholders only; they don't click.

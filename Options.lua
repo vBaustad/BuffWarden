@@ -157,8 +157,17 @@ local function Layout(parent)
         l:SetPoint("TOPLEFT", PAD, L.y - 5)
         l:SetText(label)
         local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-        btn:SetSize(MEASURE_W - CONTROL_X, 22)
+        -- Anchored to BOTH edges, which is the rule the paragraphs at the top of this file already
+        -- follow and the one this button was breaking. A fixed MEASURE_W - CONTROL_X is 268 pixels
+        -- wide on a page that is really 544, so it threw away 68 pixels it had and then printed text
+        -- past its own border. Now it takes the width the window gives it.
+        btn:SetHeight(22)
         btn:SetPoint("TOPLEFT", CONTROL_X, L.y)
+        btn:SetPoint("RIGHT", parent, "RIGHT", -PAD, 0)
+        -- ...and a value longer than even that is cut off rather than spilling out. Clipping is ugly;
+        -- text outside the box reads as broken.
+        local fs = btn.GetFontString and btn:GetFontString()
+        if fs then fs:SetWordWrap(false) end
         local function show() btn:SetText(labels[get()] or tostring(get())) end
         btn:SetScript("OnClick", function()
             local cur, nextValue = get(), values[1]
@@ -395,8 +404,7 @@ function BW:BuildOptions()
         local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
         -- Not every buff comes from a class spell: Well Fed is eaten, so it has no class and nothing
         -- to look a name up from. Fall back through what the buff does have.
-        local name = (def.spellID and C_Spell.GetSpellName(def.spellID)) or def.cast[1]
-            or def.names[1] or def.key
+        local name = BW.DisplayName(def)
         local classText = ""
         if def.class then
             local c = RAID_CLASS_COLORS and RAID_CLASS_COLORS[def.class]
@@ -502,26 +510,39 @@ function BW:BuildOptions()
     elseif myClass == "ROGUE" then
         -- Poisons are bag items, so "you cannot use that" means "none on you", and it changes as
         -- you shop. The list stays whole and says which ones you are out of.
-        local poisonLabels = setmetatable({}, { __index = function(_, k)
-            local label = BW.POISON_LABEL[k] or tostring(k)
-            if k ~= "auto" and k ~= "none" and not BW.CarryPoison(k) then
-                return label .. " |cffff5555(none in your bags)|r"
-            end
-            return label
-        end })
-        L.Cycle("Main hand poison", nil, BW.POISON_CHOICES, poisonLabels,
+        -- One label table per HAND. "Automatic" means a different poison on each, and both rows used
+        -- to show the same sentence naming both hands - so the off-hand row told you about the main
+        -- one. What automatic means comes from POISON_AUTO, the table the engine actually picks with,
+        -- rather than a sentence here that can disagree with it.
+        local function PoisonLabels(slot)
+            return setmetatable({}, { __index = function(_, k)
+                local label = BW.POISON_LABEL[k] or tostring(k)
+                if k == "auto" then
+                    local pick = BW.POISON_AUTO[slot]
+                    return ("%s (%s)"):format(label, BW.POISON_LABEL[pick] or tostring(pick))
+                end
+                if k ~= "none" and not BW.CarryPoison(k) then
+                    return label .. " |cffff5555(none in your bags)|r"
+                end
+                return label
+            end })
+        end
+        -- The same sentence on both, because an (i) has to stand on its own now: it used to be one
+        -- paragraph under the pair, which left the main-hand row with no explanation at all once the
+        -- text moved onto the markers.
+        local POISON_NOTE = "BuffWarden uses the strongest rank you carry. Don't carry the one you "
+            .. "picked and it offers what you do have instead of going quiet."
+        L.Cycle("Main hand poison", POISON_NOTE, BW.POISON_CHOICES, PoisonLabels(0),
             function() return db.poisonMain end,
             function(v) db.poisonMain = v; BW:Refresh() end)
-        L.Cycle("Off hand poison", "Whichever you pick, BuffWarden uses the strongest rank you carry. "
-            .. "Don't carry the one you picked and it offers what you do have.",
-            BW.POISON_CHOICES, poisonLabels,
+        L.Cycle("Off hand poison", POISON_NOTE, BW.POISON_CHOICES, PoisonLabels(1),
             function() return db.poisonOff end,
             function(v) db.poisonOff = v; BW:Refresh() end)
     end
     L.Cycle("Which stone or oil", "A stone is matched to your weapon: blades sharpened, blunt weapons "
         .. "weighted. Oils fit any of them, so this decides when you carry both.",
         { "auto", "stone", "oil" },
-        { auto = "Automatic (oil for casters, a stone otherwise)",
+        { auto = "Automatic",
           stone = "Always a stone", oil = "Always an oil" },
         function() return db.weaponPref end,
         function(v) db.weaponPref = v; BW:Refresh() end)
