@@ -1,6 +1,6 @@
 # BuffWarden
 
-## Unreleased
+## 0.1.0-beta10
 
 - **Settings: the tick boxes say what they actually cover.** One tick governs all five blessings, but it was labelled "Blessing of Might", so the list looked like it was missing the other four. The same was true of the paladin aura, hunter aspect, shaman shield, mage and warlock armour, and the mage familiar - each named after one member of the family it controls. They read **Blessings**, **Aura**, **Aspect**, **Shield**, **Armor** and **Familiar** now. Buffs that come in ranks keep their spell's name, because "Power Word: Fortitude" is what people call it.
 - **Fixed: the text on the choice buttons ran outside the button.** They were a fixed 268 pixels wide on a page that is 544, so anything long spilled over the edge. They take the width the window gives them now, and a value too long for even that is cut off rather than printed over the border.
