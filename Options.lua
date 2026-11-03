@@ -209,7 +209,12 @@ local function Layout(parent)
     -- The blessing pickers offer what this paladin has trained and nothing else: picking a blessing
     -- you cannot cast would quietly do nothing, which is worse than not offering it at all. A choice
     -- stored before it was trained still shows, marked, so the player can see why nothing happens.
+    -- One the game has since removed says that instead: no trainer is going to fix it. The class
+    -- buttons are 148 wide, so the tag is as long as "(not learned)" and no longer.
     local function BlessingText(kind)
+        if BW.BLESSING_GONE[kind] then
+            return BW.BLESSING_GONE[kind] .. " |cffff5555(not in game)|r"
+        end
         local label = BW.BLESSING_LABEL[kind] or tostring(kind)
         local info = BW.BLESSING_KINDS[kind]
         if kind ~= "auto" and not (info and BW.Knows(info.spell)) then

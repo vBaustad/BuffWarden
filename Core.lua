@@ -882,9 +882,10 @@ local function BlessingFor(m)
 
     -- 7. Neither their blessing nor its fallback is trained yet: give them whatever we do have, and
     -- say so, rather than showing nothing and looking broken.
-    spell = FirstKnown({ "Blessing of Might", "Blessing of Wisdom", "Blessing of Kings",
-        "Blessing of Salvation", "Blessing of Light" })
-    return spell, spell and "the only blessing you know that fits" or nil
+    for _, kind in ipairs(BW.BLESSING_ORDER) do
+        spell = KindSpell(kind)
+        if spell then return spell, "the only blessing you know that fits" end
+    end
 end
 
 -- Blessings stack one per paladin, so another paladin's Kings never fills OUR slot on a target. This
@@ -1021,10 +1022,10 @@ local function BlessingPlan(members)
     end
     -- Nobody needs anything: no blessing row at all.
     --
-    -- Once somebody does, you get every blessing you know, spares included, so Salvation is there for
-    -- the "he's pulling aggro" click without the rules having to agree first. But when the whole row
-    -- is spares it is not a palette, it is five icons sitting on the bar after the job is done - and a
-    -- solo paladin who had just blessed himself read exactly that as blessings that would not go away.
+    -- Once somebody does, you get every blessing you know, spares included, so there is a button for
+    -- the click the rules would never make. But when the whole row is spares it is not a palette, it
+    -- is icons sitting on the bar after the job is done - and a solo paladin who had just blessed
+    -- himself read exactly that as blessings that would not go away.
     -- He said so twice. Greying them was not enough; the honest answer is that there is nothing there.
     --
     -- This is a reversal: the row was made always-visible a few commits ago on the reasoning that a
@@ -2015,7 +2016,7 @@ function BW:ApplyBlessRow()
 
     -- The one name under the row: whoever you would buff next, which is the head of whichever queue
     -- starts with the closest person - members are already sorted that way, so it is the lowest rank.
-    -- The blessing's name goes with it, because a name on its own under five buttons does not tell you
+    -- The blessing's name goes with it, because a name on its own under a row of buttons does not tell you
     -- which one to press.
     local nextKind, nextWho
     for _, p in ipairs(plan) do
@@ -2612,7 +2613,8 @@ SlashCmdList.BUFFWARDEN = function(msg)
             local any = false
             for name, k in pairs(db.blessFor) do
                 any = true
-                print(("  %s -> %s"):format(name, k))
+                print(("  %s -> %s%s"):format(name, tostring(k),
+                    BW.BLESSING_GONE[k] and " (not in the game any more, so the class default)" or ""))
             end
             if not any then print("  none - everyone gets the class default") end
             print("  set one with: /bwarden bless <name> <kind>   (kinds: "

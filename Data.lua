@@ -32,14 +32,14 @@ BW.MANA_CLASSES = {
     PALADIN = true, SHAMAN = true, HUNTER = true,
 }
 
--- There is no Blessing of Sanctuary in Forever. The client's own spell list has Might, Wisdom,
--- Kings, Salvation and Light (plus Freedom, Protection and Sacrifice, which aren't stat blessings)
--- and nothing named Sanctuary anywhere. So a tank gets Kings, or Might - don't add Sanctuary back.
+-- There is no Blessing of Sanctuary in Forever, and no Salvation or Light since hotfix push 113139 on
+-- build 70707, which deleted 1038, 19977-19979, 25890 and 25895 from the client's Spell and SpellName
+-- tables. That leaves Might, Wisdom and Kings (plus Freedom, Protection and Sacrifice, which aren't
+-- stat blessings). So a tank gets Kings, or Might - don't add any of the three back. A spell called
+-- Blessing of Light still exists, 26650, but it has no skill line and no paladin trains it.
 local BLESSINGS = {
     "Blessing of Might", "Blessing of Wisdom", "Blessing of Kings",
-    "Blessing of Salvation", "Blessing of Light",
     "Greater Blessing of Might", "Greater Blessing of Wisdom", "Greater Blessing of Kings",
-    "Greater Blessing of Salvation", "Greater Blessing of Light",
     -- These three take the slot as well, and they are here so we never offer to overwrite one.
     "Blessing of Sacrifice", "Blessing of Freedom", "Blessing of Protection",
 }
@@ -47,7 +47,7 @@ local BLESSINGS = {
 -- Which blessings are cast for a moment rather than kept up. All of them occupy the same
 -- one-per-paladin slot - the client says so itself, in the spell description it shows the player:
 -- "Players may only have one Blessing on them per Paladin at any one time" appears verbatim on
--- Might, Wisdom, Kings, Salvation, Light, Freedom, Protection AND Sacrifice, on every player rank,
+-- Might, Wisdom, Kings, Freedom, Protection AND Sacrifice, on every player rank,
 -- and on none of the 20-odd unrelated "Blessing of ..." spells in the game. But the durations split
 -- them in two: the maintenance blessings all last 3600 seconds, while Protection is 6-10, Freedom is
 -- 10 and Sacrifice is 30.
@@ -66,22 +66,27 @@ BW.BLESSING_SITUATIONAL = {
 BW.BLESSING_NAMES = BLESSINGS
 
 -- Which blessing a paladin can pick for someone. Whether they HAVE it is asked of the spellbook, so
--- nothing here needs a level; for reference, the client trains them at Might 4, Wisdom 14, Kings 20,
--- Salvation 26 and Light 40, which is the order the fallbacks lean on.
+-- nothing here needs a level; for reference, the client trains them at Might 4, Wisdom 14 and Kings 20,
+-- which is the order the fallbacks lean on.
 -- Forever has only one "spec" per class and it is named after the class, so there is nothing to read
 -- about anyone ELSE's talents: their choice comes from class, role and the player. Our own talents we
 -- can read - see SPEC_ROLES.
 BW.BLESSING_KINDS = {
-    might     = { spell = "Blessing of Might" },
-    wisdom    = { spell = "Blessing of Wisdom" },
-    kings     = { spell = "Blessing of Kings" },
-    salvation = { spell = "Blessing of Salvation" },
-    light     = { spell = "Blessing of Light" },
+    might  = { spell = "Blessing of Might" },
+    wisdom = { spell = "Blessing of Wisdom" },
+    kings  = { spell = "Blessing of Kings" },
 }
 BW.BLESSING_LABEL = {
     auto = "Class default", might = "Blessing of Might", wisdom = "Blessing of Wisdom",
-    kings = "Blessing of Kings", salvation = "Blessing of Salvation",
-    light = "Blessing of Light",
+    kings = "Blessing of Kings",
+}
+-- Picks the game has since taken away, as an old saved table can still hold them. This is only the
+-- words for the settings: nothing else reads it, so nothing can offer, queue or cast one, and
+-- BlessingFor finds no spell for the kind and goes on to what anyone else of that class gets. The
+-- saved value is left alone. The page says what happened, and one click on it clears it.
+BW.BLESSING_GONE = {
+    salvation = "Blessing of Salvation",
+    light     = "Blessing of Light",
 }
 
 -- What each of a class's three talent tabs means, in the client's own tab order. Only the classes
@@ -96,7 +101,7 @@ BW.SPEC_ROLES = {
 -- the talents themselves are the better signal.
 BW.PALADIN_HEALER_SIGNS = { "Divine Favor", "Holy Shock" }
 -- The order the blessing row shows its buttons in.
-BW.BLESSING_ORDER = { "might", "wisdom", "kings", "salvation", "light" }
+BW.BLESSING_ORDER = { "might", "wisdom", "kings" }
 
 -- The default per class, aimed at dungeons and levelling (raids are PallyPower's job).
 --
