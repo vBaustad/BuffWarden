@@ -1,5 +1,10 @@
 # BuffWarden
 
+## 1.0.0
+
+- **Out of beta, for the launch of WoW: Forever.** Checked against the game's newest client, build 1.60.1.70707. The blessings below are the one change in it that reaches BuffWarden.
+- **Blessing of Salvation and Blessing of Light are gone from the game, so they are gone from BuffWarden.** A hotfix to build 70707 deleted both, Greater versions included, which leaves Might, Wisdom and Kings. BuffWarden offers only what your spellbook holds, so neither could reach a button. But a person or class you had set to one of them read "(not learned)" on the settings page, as if a trainer could fix it. It now reads "(not in game)", they get their class default, and one click on it clears the choice.
+
 ## 0.1.0-beta10
 
 - **Settings: the tick boxes say what they actually cover.** One tick governs all five blessings, but it was labelled "Blessing of Might", so the list looked like it was missing the other four. The same was true of the paladin aura, hunter aspect, shaman shield, mage and warlock armour, and the mage familiar - each named after one member of the family it controls. They read **Blessings**, **Aura**, **Aspect**, **Shield**, **Armor** and **Familiar** now. Buffs that come in ranks keep their spell's name, because "Power Word: Fortitude" is what people call it.

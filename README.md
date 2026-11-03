@@ -6,8 +6,7 @@ BuffWarden shows a small row of icons for the buffs you're missing: your own sel
 someone in your party can give. When you can cast a buff yourself, a click casts it on the groupmate who needs
 it. When someone else has it, a click whispers them to ask. When nothing is missing, the row is gone.
 
-> **Status: beta (0.1.0-beta1).** Built for the WoW: Forever beta. Expect rough edges, and please report what
-> you find.
+> Built for WoW: Forever. Please report what you find.
 
 ## What it does
 
@@ -30,7 +29,7 @@ it. When someone else has it, a click whispers them to ask. When nothing is miss
   nothing for a shot, while Kings gives them 10% agility. Set it per class or per person in the settings
   and your choice always wins. The row appears only when
   somebody actually needs a blessing; when it is up, the ones nobody asked for are dimmed, and a click puts
-  one on whoever you point at or have targeted - which is how you hand Salvation to the one pulling aggro.
+  one on whoever you point at or have targeted.
 - **Weapon buffs.** Sharpening stones, weightstones, oils and shaman imbues, with one click to apply the
   right one from your bags. A stone is matched to your weapon, and nothing is shown unless you carry one
   that fits (never for a fishing pole).
