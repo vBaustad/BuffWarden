@@ -1,5 +1,11 @@
 # BuffWarden
 
+## 1.0.1
+
+- **Thorns.** Druids now get a reminder to keep Thorns up on themselves, from level 6. Thanks to DocTheSage for spotting that it was missing.
+- **Shadowguard and Touch of Weakness.** Troll priests get the same reminder for Shadowguard from level 20, and undead priests for Touch of Weakness from level 10, just as for Inner Fire.
+- **No more Omen of Clarity button.** In WoW: Forever, Omen of Clarity is a passive that a druid always has, not a buff you cast, but BuffWarden still treated it as one. From level 20 a druid could be offered a button for it that did nothing.
+
 ## 1.0.0
 
 - **Out of beta, for the launch of WoW: Forever.** Checked against the game's newest client, build 1.60.1.70707. The blessings below are the one change in it that reaches BuffWarden.
