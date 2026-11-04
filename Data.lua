@@ -252,6 +252,15 @@ BW.BUFFS = {
     { key = "innerfire", spellID = 588, class = "PRIEST", scope = "self",
       names = { "Inner Fire" }, cast = { "Inner Fire" },
       icon = "Interface\\Icons\\Spell_Holy_InnerFire" },
+    -- The two racial priest buffs: trolls train Shadowguard from level 20, the undead Touch of Weakness
+    -- from 10 (raceMask 128 and 16 in the trainer data). Ten minutes, gone sooner once hit,
+    -- and nobody else can have them, so it is our own spellbook that decides who sees which.
+    { key = "shadowguard", spellID = 18137, class = "PRIEST", scope = "self",
+      names = { "Shadowguard" }, cast = { "Shadowguard" },
+      icon = "Interface\\Icons\\Spell_Nature_LightningShield" },
+    { key = "touchofweakness", spellID = 2652, class = "PRIEST", scope = "self",
+      names = { "Touch of Weakness" }, cast = { "Touch of Weakness" },
+      icon = "Interface\\Icons\\Spell_Shadow_DeadofNight" },
     { key = "magearmor", label = "Armor", spellID = 168, class = "MAGE", scope = "self",
       names = { "Frost Armor", "Ice Armor", "Mage Armor", "Molten Armor" },
       cast = { "Molten Armor", "Mage Armor", "Ice Armor", "Frost Armor" },
@@ -289,9 +298,13 @@ BW.BUFFS = {
       names = { "Lightning Shield", "Water Shield" },
       cast = { "Water Shield", "Lightning Shield" },
       icon = "Interface\\Icons\\Spell_Nature_LightningShield" },
-    { key = "omen", spellID = 16864, class = "DRUID", scope = "self",
-      names = { "Omen of Clarity" }, cast = { "Omen of Clarity" },
-      icon = "Interface\\Icons\\Spell_Nature_CrystalBall" },
+    -- Thorns can go on anyone, but it is a buff for one person rather than the group, so this only
+    -- keeps it on you. There is no Omen of Clarity here: in Forever it is a passive (no duration, the
+    -- passive flag set, in every build from 70009 to 70755), and a passive cannot be cast - the row
+    -- could only ever have offered a button that did nothing.
+    { key = "thorns", spellID = 467, class = "DRUID", scope = "self",
+      names = { "Thorns" }, cast = { "Thorns" },
+      icon = "Interface\\Icons\\Spell_Nature_Thorns" },
 
     -- Righteous Fury is threat, so it belongs to a tanking paladin and nobody else - and to a holy
     -- paladin it is dangerous, which is why the shield alone can't decide this: holy paladins carry

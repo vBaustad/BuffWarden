@@ -10,8 +10,9 @@ it. When someone else has it, a click whispers them to ask. When nothing is miss
 
 ## What it does
 
-- **Your own buffs.** Inner Fire, Mage Armor, Demon Skin, Paladin auras, Aspects, Trueshot Aura, Lightning or
-  Water Shield and Omen of Clarity, for the class that uses them.
+- **Your own buffs.** Inner Fire (and Shadowguard or Touch of Weakness for troll and undead priests), Mage
+  Armor, Demon Skin, Paladin auras, Aspects, Trueshot Aura, Lightning or Water Shield and Thorns, for the
+  class that uses them.
 - **Group buffs.** Power Word: Fortitude, Divine Spirit, Arcane Intellect, Mark of the Wild and Blessings.
   Shadow Protection can be turned on in the settings.
 - **Gold icon: you can cast it.** The number shows how many in your group are missing it. A click casts it on
