@@ -34,6 +34,9 @@ it. When someone else has it, a click whispers them to ask. When nothing is miss
 - **Weapon buffs.** Sharpening stones, weightstones, oils and shaman imbues, with one click to apply the
   right one from your bags. A stone is matched to your weapon, and nothing is shown unless you carry one
   that fits (never for a fishing pole).
+- **Poisons, for rogues.** Every poison you carry gets an icon, at the strongest rank your level
+  allows. Left-click puts it on your main hand, right-click on your off hand, and the row stays until
+  both hands are coated. In the settings you can leave a hand out.
 - **It knows what you are.** BuffWarden reads your own class, level, talents, weapons and trained
   spells, so advice meant for a tank doesn't reach a healer. Other players stay private: their spec is
   not readable and BuffWarden never guesses at it.

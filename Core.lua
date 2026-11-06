@@ -34,8 +34,8 @@ local defaults = {
     imbuePref    = "auto",  -- shaman: "auto" (best known) or the name of one imbue
     mageImbuePref = "auto", -- mage: "auto" (best scroll you carry), one imbue's name, or "none"
     familiarPref = "auto",  -- mage: "auto" (best scroll you carry), one familiar's name, or "none"
-    poisonMain   = "auto",  -- rogue: "auto", a poison kind, or "none"
-    poisonOff    = "auto",
+    poisonMain   = "auto",  -- rogue: "none" leaves this hand unwatched; anything else watches it
+    poisonOff    = "auto",  -- (older saves may hold a poison kind from when this picked one)
 }
 
 local ASK_TEXT = "Could I get %s, please? :)"
@@ -419,38 +419,41 @@ end
 -- sharpened, blunt weapons weighted); oils fit anything, so the preference decides between them.
 local enhancerCache = {}       -- [subclass|preference] = item or false; dropped when the bags change
 
-local poisonCache = {}         -- [kind] = item or false; same reason, same lifetime
+local poisonCache = {}         -- .list = the poisons you can use; same reason, same lifetime
 
 function BW.ForgetEnhancers()
     wipe(enhancerCache)
     wipe(poisonCache)
 end
 
--- The strongest poison of this kind in the bags ("any" = whatever is best of any kind).
-local function BestPoison(kind)
-    local cached = poisonCache[kind]
-    if cached ~= nil then return cached or nil end
-    local best, bestRank
+-- Every poison in the bags that you can put on a weapon: the strongest rank of each kind your level
+-- allows, in the row's order (BW.POISON_ORDER). One bag walk answers every question about poisons.
+-- The level check is the same one the mage scrolls have: a rank you cannot use yet is an icon you
+-- cannot act on.
+local function CarriedPoisons()
+    local cached = poisonCache.list
+    if cached then return cached end
+    local level = UnitLevel("player") or 1
+    local byKind = {}
     for bag = 0, LAST_BAG do
         for slot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
             local info = C_Container.GetContainerItemInfo(bag, slot)
             local id = info and Clean(info.itemID)
             local e = id and BW.POISONS[id]
-            if e and (kind == "any" or e.kind == kind) then
-                if not bestRank or e.rank > bestRank then
-                    bestRank, best = e.rank, { id = id, kind = e.kind }
+            if e and (e.level or 1) <= level then
+                local have = byKind[e.kind]
+                if not have or e.rank > have.rank then
+                    byKind[e.kind] = { id = id, kind = e.kind, rank = e.rank }
                 end
             end
         end
     end
-    poisonCache[kind] = best or false
-    return best
-end
-
--- For the settings: is there any point offering this poison? Bags change minute to minute, so the
--- option stays on the list and simply says when there is nothing to apply.
-function BW.CarryPoison(kind)
-    return BestPoison(kind) ~= nil
+    local list = {}
+    for _, kind in ipairs(BW.POISON_ORDER) do
+        if byKind[kind] then list[#list + 1] = byKind[kind] end
+    end
+    poisonCache.list = list
+    return list
 end
 
 local function BestEnhancer(subClassID)
@@ -556,12 +559,12 @@ local function WeaponEntry(w)
         item = BestScroll("imbue", BW.MAGE_IMBUES, BW.db.mageImbuePref)
         if not item and BW.db.mageImbuePref == "none" then return nil end
     elseif myClass == "ROGUE" then
-        -- Rogues coat each weapon separately, and which poison goes where is the player's choice.
+        -- On the bar a rogue's poisons are a row of their own (PoisonEntries), and which one goes
+        -- on which hand is the click's choice. What is left here is the in-combat readout's picture
+        -- for a bare hand, and the case of a rogue with no poison at all, who gets a stone below.
         local pref = (w.slot == 0) and BW.db.poisonMain or BW.db.poisonOff
         if pref == "none" then return nil end
-        item = BestPoison(pref == "auto" and BW.POISON_AUTO[w.slot] or pref)
-        -- Asked for one they don't carry: offer what they do have rather than going quiet.
-        if not item then item = BestPoison("any") end
+        item = CarriedPoisons()[1]
     end
     if not imbue and not item then item = BestEnhancer(subClassID) end
     if not imbue and not item then return nil end   -- nothing usable: never nag
@@ -585,6 +588,52 @@ local function WeaponEntry(w)
         icon = icon or FALLBACK_ICON,
         label = w.label,
     }
+end
+
+-- A rogue's poisons on the bar: one icon per poison you carry, the same set on both hands, because
+-- which poison goes where is a choice and the click is where it is made. Left-click coats the main
+-- hand, right-click the off hand. The row stays until every hand you watch has a poison on it - a
+-- hand running out still counts as wanting one.
+--
+-- nil when you carry no poison you can use: the bar then falls back to the stone it offers everyone
+-- else. An empty list is the other answer and means the opposite - you have poisons and both hands
+-- are coated - so no stone either.
+local function PoisonEntries()
+    local list = CarriedPoisons()
+    if #list == 0 then return nil end
+    local hands, wanted, bare, soonest = {}, false, false, nil
+    for _, w in ipairs(WEAPON_SLOTS) do
+        local state = EquippedWeapon(w.inv) and WeaponEnchant(w.slot)
+        if state then
+            local pref = (w.slot == 0) and BW.db.poisonMain or BW.db.poisonOff
+            local h = { label = w.label, left = state.left, missing = state.left <= 0 }
+            h.expiring = (not h.missing) and state.left <= WEAPON_WARN and state.left or nil
+            h.wanted = pref ~= "none" and (h.missing or h.expiring ~= nil)
+            if h.wanted then
+                wanted = true
+                if h.missing then
+                    bare = true
+                elseif not soonest or h.expiring < soonest then
+                    soonest = h.expiring
+                end
+            end
+            hands[w.slot] = h
+        end
+    end
+    if not wanted then return {} end
+    local out = {}
+    for _, p in ipairs(list) do
+        local name = C_Item.GetItemNameByID and C_Item.GetItemNameByID(p.id)
+        out[#out + 1] = {
+            key = "poison:" .. p.kind, mode = "poison", item = p, itemName = name,
+            spell = name or "Poison", hands = hands,
+            -- A countdown only while no hand is bare: a clock over an icon whose other hand is
+            -- empty would say "not urgent" about the urgent one.
+            expiring = (not bare) and soonest or nil,
+            icon = (C_Item.GetItemIconByID and C_Item.GetItemIconByID(p.id)) or FALLBACK_ICON,
+        }
+    end
+    return out
 end
 
 -- Every aura name BuffWarden cares about, and the instance IDs of those auras as last seen, so an
@@ -1241,9 +1290,14 @@ function BW:Compute()
     end
 
     if BW.db.weaponBuffs then
-        for _, w in ipairs(WEAPON_SLOTS) do
-            local e = WeaponEntry(w)
-            if e then entries[#entries + 1] = e end
+        local poisons = myClass == "ROGUE" and PoisonEntries()
+        if poisons then
+            for _, e in ipairs(poisons) do entries[#entries + 1] = e end
+        else
+            for _, w in ipairs(WEAPON_SLOTS) do
+                local e = WeaponEntry(w)
+                if e then entries[#entries + 1] = e end
+            end
         end
     end
 
@@ -1253,7 +1307,7 @@ function BW:Compute()
     for _, e in ipairs(entries) do
         if e.mode == "food" then
             e.icon = BW.IconFor(e.def)
-        elseif e.mode ~= "weapon" then
+        elseif e.mode ~= "weapon" and e.mode ~= "poison" then
             e.icon = (e.mode == "cast" and C_Spell.GetSpellTexture(e.spell)) or BW.IconFor(e.def)
                 or FALLBACK_ICON
         end
@@ -1407,6 +1461,27 @@ local function ButtonOnEnter(self)
     if e.preview then
         GameTooltip:AddLine(e.preview, 1, 1, 1, true)
         GameTooltip:AddLine("Preview - drag to move, /bwarden lock when done.", 0.6, 0.6, 0.6, true)
+        GameTooltip:Show()
+        return
+    end
+    -- Before the generic "runs out" line: the clock on a poison icon is the clock of what is on the
+    -- weapon, which need not be this poison at all.
+    if e.mode == "poison" then
+        local function Hand(slot, click)
+            local h = e.hands and e.hands[slot]
+            if not h then
+                GameTooltip:AddLine(click .. ": nothing - no weapon in that hand.", 0.6, 0.6, 0.6)
+                return
+            end
+            local now = h.missing and "no poison"
+                or (h.expiring and ("running out, %s left"):format(FmtTime(h.expiring)))
+                or ("coated, %s left"):format(FmtTime(h.left))
+            local c = h.wanted and { 0.4, 1, 0.4 } or { 0.6, 0.6, 0.6 }
+            GameTooltip:AddLine(("%s: %s (%s)"):format(click, h.label:lower(), now), c[1], c[2], c[3])
+        end
+        Hand(0, "Left-click")
+        Hand(1, "Right-click")
+        GameTooltip:AddLine("Readable in combat, unlike other buffs.", 0.6, 0.6, 0.6, true)
         GameTooltip:Show()
         return
     end
@@ -1704,7 +1779,8 @@ function BW:Apply(entries)
         if b.shownAlpha ~= 1 then b.shownAlpha = 1; b:SetAlpha(1) end
         -- A weapon buff keeps its purple, the way the game shows it; the countdown turns orange instead.
         -- COLORS.cast as the last resort: a mode without its own colour must never break the bar.
-        local c = (e.mode == "weapon" and COLORS.weapon) or (e.expiring and COLORS.expiring)
+        local c = ((e.mode == "weapon" or e.mode == "poison") and COLORS.weapon)
+            or (e.expiring and COLORS.expiring)
             or COLORS[e.mode] or COLORS.cast
         if b.shownColor ~= c then b.shownColor = c; b.border:SetVertexColor(c[1], c[2], c[3]) end
         local count = (e.mode == "cast" and e.targets and #e.targets > 1) and tostring(#e.targets) or ""
@@ -1722,6 +1798,11 @@ function BW:Apply(entries)
         local typ, spell, unit
         b.ask = nil
         local macro, macroName
+        -- Per mouse button, for the poisons only: the secure template reads "type1" before "type"
+        -- for a left-click and "type2" for a right-click. Every other icon leaves these nil, which
+        -- matters because buttons are reused - a poison icon's right-click must not survive onto
+        -- whatever the button shows next.
+        local leftMacro, rightMacro
         if e.preview then
             -- placeholders get no click action at all: nothing pretend can reach a macro
         elseif e.mode == "food" then
@@ -1736,6 +1817,11 @@ function BW:Apply(entries)
             elseif e.item then
                 typ, macro = "macro", ("/use item:%d\n/use %d"):format(e.item.id, e.slot.inv)
             end
+        elseif e.mode == "poison" then
+            -- The same two-step the stones use, one hand per mouse button. A hand with no weapon in
+            -- it gets no action, so that click does nothing rather than coating the wrong hand.
+            if e.hands[0] then leftMacro = ("/use item:%d\n/use 16"):format(e.item.id) end
+            if e.hands[1] then rightMacro = ("/use item:%d\n/use 17"):format(e.item.id) end
         elseif e.mode == "count" then
             -- Nothing. See the blessing branch in Compute: in a raid we cannot tell who is near you,
             -- so this icon reports and does not pretend to act.
@@ -1745,7 +1831,7 @@ function BW:Apply(entries)
             b.ask = { unit = e.providers[1], spell = e.spell }
         end
         local action = (typ or "") .. "|" .. (spell or "") .. "|" .. (unit or "") .. "|" .. (macro or "")
-            .. "|" .. (macroName or "")
+            .. "|" .. (macroName or "") .. "|" .. (leftMacro or "") .. "|" .. (rightMacro or "")
         if b.action ~= action then
             b.action = action
             b:SetAttribute("type", typ)
@@ -1753,6 +1839,10 @@ function BW:Apply(entries)
             b:SetAttribute("unit", unit)
             b:SetAttribute("macrotext", macro)
             b:SetAttribute("macro", macroName)
+            b:SetAttribute("type1", leftMacro and "macro" or nil)
+            b:SetAttribute("macrotext1", leftMacro)
+            b:SetAttribute("type2", rightMacro and "macro" or nil)
+            b:SetAttribute("macrotext2", rightMacro)
         end
         b:Show()
     end
@@ -2422,8 +2512,23 @@ function BW:Report(prefix)
     local entries = self.entries or {}
     if #entries == 0 then print(TAG .. ": " .. (prefix or "") .. "all buffed up.") return end
     local cast, ask = {}, {}
+    local poisonSaid = false
     for _, e in ipairs(entries) do
-        if e.mode == "food" then
+        if e.mode == "poison" then
+            -- One line for the whole row: it is one gap (a hand without poison), however many
+            -- poisons you carry to fill it with.
+            if not poisonSaid then
+                poisonSaid = true
+                local wants = {}
+                for _, slot in ipairs({ 0, 1 }) do
+                    local h = e.hands[slot]
+                    if h and h.wanted then
+                        wants[#wants + 1] = h.label:lower() .. (h.expiring and " (running out)" or "")
+                    end
+                end
+                cast[#cast + 1] = "a poison on your " .. table.concat(wants, " and ")
+            end
+        elseif e.mode == "food" then
             cast[#cast + 1] = "Well Fed"
         elseif e.mode == "item" then
             cast[#cast + 1] = e.spell .. (e.expiring and " (running out)" or "")
@@ -2458,7 +2563,12 @@ local function ToggleLock() BW:SetLocked(not BW.db.locked) end
 
 local function MissingText()
     if BW.restricted then return "Buffs can't be read right now." end
-    local n = BW.entries and #BW.entries or 0
+    -- The poison row counts once: three poisons to choose from are one thing missing, not three.
+    local n, poison = 0, false
+    for _, e in ipairs(BW.entries or {}) do
+        if e.mode == "poison" then poison = true else n = n + 1 end
+    end
+    if poison then n = n + 1 end
     return n == 0 and "All buffed up." or (n .. " buff" .. (n == 1 and "" or "s") .. " missing")
 end
 
@@ -2493,13 +2603,12 @@ function BW:PublishWeaponEnhancers()
         Keep = function(itemID)
             if not (BW.db and BW.db.weaponBuffs and itemID) then return nil end
             if BW.POISONS[itemID] then
-                for _, w in ipairs(WEAPON_SLOTS) do
-                    local pref = (w.slot == 0) and BW.db.poisonMain or BW.db.poisonOff
-                    if pref ~= "none" then
-                        local best = BestPoison(pref == "auto" and BW.POISON_AUTO[w.slot] or pref)
-                            or BestPoison("any")
-                        if best and best.id == itemID then return "BuffWarden coats your weapon with this" end
-                    end
+                -- Every poison the row offers, which is the best rank of each kind you can use -
+                -- as long as some hand is watched at all. A lower rank of the same poison is not
+                -- offered, so it is not kept on our account.
+                if BW.db.poisonMain == "none" and BW.db.poisonOff == "none" then return nil end
+                for _, p in ipairs(CarriedPoisons()) do
+                    if p.id == itemID then return "BuffWarden coats your weapons with this" end
                 end
                 return nil
             end
@@ -2751,13 +2860,16 @@ SlashCmdList.BUFFWARDEN = function(msg)
                 local state = WeaponEnchant(w.slot)
                 local stone = BestEnhancer(subClassID)
                 local pref = (w.slot == 0) and db.poisonMain or db.poisonOff
-                local poison = c == "ROGUE" and pref ~= "none"
-                    and (BestPoison(pref == "auto" and BW.POISON_AUTO[w.slot] or pref) or BestPoison("any"))
-                print(("  %s: weapon=%s subclass=%s buff=%s stone=%s poison=%s"):format(w.label,
+                print(("  %s: weapon=%s subclass=%s buff=%s stone=%s watched=%s"):format(w.label,
                     tostring(itemID), tostring(subClassID),
                     state and (state.left > 0 and FmtTime(state.left) .. " left" or "none") or "unreadable",
-                    stone and tostring(stone.id) or "-", poison and tostring(poison.id) or "-"))
+                    stone and tostring(stone.id) or "-", tostring(pref ~= "none")))
             end
+        end
+        if c == "ROGUE" then
+            local ids = {}
+            for _, p in ipairs(CarriedPoisons()) do ids[#ids + 1] = p.kind .. "=" .. p.id end
+            print("  poisons you can use: " .. (#ids > 0 and table.concat(ids, " ") or "none"))
         end
         for _, def in ipairs(BW.BUFFS) do
             if def.class == c then
@@ -2987,6 +3099,7 @@ f:SetScript("OnEvent", function(_, event, unit, info)
         BW:ScheduleRefresh()
     elseif event == "SPELLS_CHANGED" or event == "PLAYER_LEVEL_UP" then
         wipe(knownCache)
+        BW.ForgetEnhancers()   -- a level can open a poison or scroll rank that was already in the bags
         BW.ForgetMe()          -- the profile holds our level, and a new rank can be a new signal
         BW:ScheduleRefresh()
     elseif event == "LEARNED_SPELL_IN_SKILL_LINE" then

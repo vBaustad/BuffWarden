@@ -513,36 +513,20 @@ function BW:BuildOptions()
             function() return db.familiarPref end,
             function(v) db.familiarPref = v; BW.ForgetEnhancers(); BW:Refresh() end)
     elseif myClass == "ROGUE" then
-        -- Poisons are bag items, so "you cannot use that" means "none on you", and it changes as
-        -- you shop. The list stays whole and says which ones you are out of.
-        -- One label table per HAND. "Automatic" means a different poison on each, and both rows used
-        -- to show the same sentence naming both hands - so the off-hand row told you about the main
-        -- one. What automatic means comes from POISON_AUTO, the table the engine actually picks with,
-        -- rather than a sentence here that can disagree with it.
-        local function PoisonLabels(slot)
-            return setmetatable({}, { __index = function(_, k)
-                local label = BW.POISON_LABEL[k] or tostring(k)
-                if k == "auto" then
-                    local pick = BW.POISON_AUTO[slot]
-                    return ("%s (%s)"):format(label, BW.POISON_LABEL[pick] or tostring(pick))
-                end
-                if k ~= "none" and not BW.CarryPoison(k) then
-                    return label .. " |cffff5555(none in your bags)|r"
-                end
-                return label
-            end })
-        end
-        -- The same sentence on both, because an (i) has to stand on its own now: it used to be one
-        -- paragraph under the pair, which left the main-hand row with no explanation at all once the
-        -- text moved onto the markers.
-        local POISON_NOTE = "BuffWarden uses the strongest rank you carry. Don't carry the one you "
-            .. "picked and it offers what you do have instead of going quiet."
-        L.Cycle("Main hand poison", POISON_NOTE, BW.POISON_CHOICES, PoisonLabels(0),
-            function() return db.poisonMain end,
-            function(v) db.poisonMain = v; BW:Refresh() end)
-        L.Cycle("Off hand poison", POISON_NOTE, BW.POISON_CHOICES, PoisonLabels(1),
-            function() return db.poisonOff end,
-            function(v) db.poisonOff = v; BW:Refresh() end)
+        -- Which poison goes on which hand is chosen on the bar now, by the click: every poison you
+        -- carry gets an icon, left-click for the main hand and right-click for the off hand. What is
+        -- left to set here is whether a hand is watched at all. The stored values stay "auto" and
+        -- "none", so a hand somebody switched off before this keeps being off.
+        -- The same sentence on both, because an (i) has to stand on its own.
+        local POISON_NOTE = "Shows every poison you carry until this hand has one: left-click puts "
+            .. "it on your main hand, right-click on your off hand. BuffWarden uses the strongest "
+            .. "rank your level allows."
+        L.Check("Poison on my main hand", POISON_NOTE,
+            function() return db.poisonMain ~= "none" end,
+            function(v) db.poisonMain = v and "auto" or "none"; BW:Refresh() end)
+        L.Check("Poison on my off hand", POISON_NOTE,
+            function() return db.poisonOff ~= "none" end,
+            function(v) db.poisonOff = v and "auto" or "none"; BW:Refresh() end)
     end
     L.Cycle("Which stone or oil", "A stone is matched to your weapon: blades sharpened, blunt weapons "
         .. "weighted. Oils fit any of them, so this decides when you carry both.",

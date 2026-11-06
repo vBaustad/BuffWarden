@@ -504,40 +504,39 @@ BW.IMBUE_LABEL = {
     ["Rockbiter Weapon"] = "Rockbiter Weapon",
 }
 
--- Rogue poisons, from the client's item data (class 0/8). rank orders the ranks of one poison.
+-- Rogue poisons: the items the Poisons recipes make (skill line 40, build 70755), with each item's
+-- RequiredLevel from itemsparse. rank orders the ranks of one poison; level keeps a rank you cannot
+-- use yet off the bar. Occult, Atrophic, Numbing and Sebacious are in the client's recipe list too,
+-- at 54-60. Whether a trainer teaches them is not in the data - listing them costs nothing if nobody
+-- ever carries one.
 BW.POISONS = {
-    [6947]  = { kind = "instant", rank = 1 },   -- Instant Poison
-    [6949]  = { kind = "instant", rank = 2 },
-    [6950]  = { kind = "instant", rank = 3 },
-    [8926]  = { kind = "instant", rank = 4 },
-    [8927]  = { kind = "instant", rank = 5 },
-    [8928]  = { kind = "instant", rank = 6 },
-    [2892]  = { kind = "deadly", rank = 1 },    -- Deadly Poison
-    [2893]  = { kind = "deadly", rank = 2 },
-    [8984]  = { kind = "deadly", rank = 3 },
-    [8985]  = { kind = "deadly", rank = 4 },
-    [20844] = { kind = "deadly", rank = 5 },
-    [10918] = { kind = "wound", rank = 1 },     -- Wound Poison
-    [10920] = { kind = "wound", rank = 2 },
-    [10921] = { kind = "wound", rank = 3 },
-    [10922] = { kind = "wound", rank = 4 },
-    [3775]  = { kind = "crippling", rank = 1 }, -- Crippling Poison
-    [3776]  = { kind = "crippling", rank = 2 },
-    [5237]  = { kind = "mindnumbing", rank = 1 },  -- Mind-numbing Poison
-    [6951]  = { kind = "mindnumbing", rank = 2 },
-    [9186]  = { kind = "mindnumbing", rank = 3 },
+    [6947]   = { kind = "instant", rank = 1, level = 20 },   -- Instant Poison
+    [6949]   = { kind = "instant", rank = 2, level = 28 },
+    [6950]   = { kind = "instant", rank = 3, level = 36 },
+    [8926]   = { kind = "instant", rank = 4, level = 44 },
+    [8927]   = { kind = "instant", rank = 5, level = 52 },
+    [8928]   = { kind = "instant", rank = 6, level = 60 },
+    [2892]   = { kind = "deadly", rank = 1, level = 30 },    -- Deadly Poison
+    [2893]   = { kind = "deadly", rank = 2, level = 38 },
+    [8984]   = { kind = "deadly", rank = 3, level = 46 },
+    [8985]   = { kind = "deadly", rank = 4, level = 54 },
+    [20844]  = { kind = "deadly", rank = 5, level = 60 },
+    [10918]  = { kind = "wound", rank = 1, level = 32 },     -- Wound Poison
+    [10920]  = { kind = "wound", rank = 2, level = 40 },
+    [10921]  = { kind = "wound", rank = 3, level = 48 },
+    [10922]  = { kind = "wound", rank = 4, level = 56 },
+    [226374] = { kind = "occult", rank = 1, level = 54 },    -- Occult Poison
+    [234444] = { kind = "occult", rank = 2, level = 60 },
+    [3775]   = { kind = "crippling", rank = 1, level = 20 }, -- Crippling Poison
+    [3776]   = { kind = "crippling", rank = 2, level = 50 },
+    [5237]   = { kind = "mindnumbing", rank = 1, level = 24 },  -- Mind-numbing Poison
+    [6951]   = { kind = "mindnumbing", rank = 2, level = 38 },
+    [9186]   = { kind = "mindnumbing", rank = 3, level = 52 },
+    [217347] = { kind = "atrophic", rank = 1, level = 60 },  -- Atrophic Poison
+    [217346] = { kind = "numbing", rank = 1, level = 60 },   -- Numbing Poison
+    [217345] = { kind = "sebacious", rank = 1, level = 60 }, -- Sebacious Poison
 }
 
--- What to offer when the player hasn't chosen: Instant on the main hand, Deadly on the off hand.
-BW.POISON_AUTO = { [0] = "instant", [1] = "deadly" }
-BW.POISON_CHOICES = { "auto", "instant", "deadly", "wound", "crippling", "mindnumbing", "none" }
--- `auto` is deliberately bare: what "automatic" means depends on WHICH HAND is asking, and the
--- settings page fills that in from POISON_AUTO above rather than repeating the answer here. It used to
--- read "Automatic (Instant on main, Deadly on off hand)" and was shown as the value of both rows, so
--- the off-hand row named the main hand as well and the two rows read identically.
-BW.POISON_LABEL = {
-    auto = "Automatic",
-    instant = "Instant Poison", deadly = "Deadly Poison", wound = "Wound Poison",
-    crippling = "Crippling Poison", mindnumbing = "Mind-numbing Poison",
-    none = "Don't remind me for this hand",
-}
+-- The order of the poison row: the damage poisons first, then the ones that slow or weaken.
+BW.POISON_ORDER = { "instant", "deadly", "wound", "occult", "crippling", "mindnumbing",
+    "atrophic", "numbing", "sebacious" }

@@ -1,5 +1,11 @@
 # BuffWarden
 
+## Unreleased
+
+- **Rogues choose the poison with the click.** Every poison you carry now gets its own icon on the bar: left-click puts it on your main hand, right-click on your off hand. The row stays until both hands are coated, and a hand that is running out counts as needing a coat. With a shield or nothing in the off hand, only the main hand counts.
+- **Each hand is a tick in the settings now**, "Poison on my main hand" and "Poison on my off hand", instead of a poison to pick for it. A hand you had set to "Don't remind me" stays off.
+- **Only poisons your level can use.** BuffWarden takes the strongest rank of each poison that your level allows, and no longer offers one you are too low for, such as Deadly Poison at level 25.
+
 ## 1.0.1
 
 - **Thorns.** Druids now get a reminder to keep Thorns up on themselves, from level 6. Thanks to DocTheSage for spotting that it was missing.
