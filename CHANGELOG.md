@@ -1,6 +1,6 @@
 # BuffWarden
 
-## Unreleased
+## 1.1.0
 
 - **Rogues choose the poison with the click.** Every poison you carry now gets its own icon on the bar: left-click puts it on your main hand, right-click on your off hand. The row stays until both hands are coated, and a hand that is running out counts as needing a coat. With a shield or nothing in the off hand, only the main hand counts.
 - **Each hand is a tick in the settings now**, "Poison on my main hand" and "Poison on my off hand", instead of a poison to pick for it. A hand you had set to "Don't remind me" stays off.
