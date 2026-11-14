@@ -1,5 +1,9 @@
 # BuffWarden
 
+## Unreleased
+
+- **Thorns for the whole group.** Druids are now reminded when anyone in the group is missing Thorns, not only themselves, and a click casts it on the next one who needs it. Nobody else in the group is told to ask the druid for it.
+
 ## 1.1.0
 
 - **Rogues choose the poison with the click.** Every poison you carry now gets its own icon on the bar: left-click puts it on your main hand, right-click on your off hand. The row stays until both hands are coated, and a hand that is running out counts as needing a coat. With a shield or nothing in the off hand, only the main hand counts.

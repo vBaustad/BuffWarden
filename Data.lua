@@ -14,6 +14,7 @@ local ADDON, BW = ...
 --   spellID   any rank of the spell; its texture is the icon (works even when you can't cast it)
 --   icon      fallback icon path, only if the client doesn't know the spell ID
 --   minLevel  level a groupmate needs before we suggest asking them for it (their spellbooks can't be read)
+--   noAsk     a group buff we never suggest asking another player for: only its own class is reminded
 --   talent    a talent spell: only suggest asking when someone in the group already carries the buff,
 --             since that proves one of them has the talent
 --   short     a short, cheap buff you recast often (Battle Shout). Its own rules, all optional:
@@ -241,6 +242,15 @@ BW.BUFFS = {
       names = { "Mark of the Wild", "Gift of the Wild" },
       cast = { "Mark of the Wild" },
       icon = "Interface\\Icons\\Spell_Nature_Regeneration" },
+    -- Thorns is cast on one target at a time, but any number of people can carry it: the spell says
+    -- "the friendly target", lasts ten minutes (spellduration 600000 for 467 and 9910, build 70790),
+    -- and has none of the "only one ... per Paladin" wording the blessings carry. It used to be kept
+    -- on the druid alone because "one target" had been read as "one person" (the user, 2026-11-14:
+    -- "man kan gi thorns til alle i gruppa"). `noAsk`: nobody else is told to ask the druid for it -
+    -- a ten-minute buff would put that request on everyone's bar six times an hour.
+    { key = "thorns", spellID = 467, class = "DRUID", scope = "group", noAsk = true,
+      names = { "Thorns" }, cast = { "Thorns" },
+      icon = "Interface\\Icons\\Spell_Nature_Thorns" },
     { key = "blessing", label = "Blessings", spellID = 19740, class = "PALADIN", scope = "blessing", minLevel = 4,
       names = BLESSINGS,
       -- Core picks the blessing per target (BLESSING_BY_CLASS and the player's overrides); this
@@ -298,13 +308,10 @@ BW.BUFFS = {
       names = { "Lightning Shield", "Water Shield" },
       cast = { "Water Shield", "Lightning Shield" },
       icon = "Interface\\Icons\\Spell_Nature_LightningShield" },
-    -- Thorns can go on anyone, but it is a buff for one person rather than the group, so this only
-    -- keeps it on you. There is no Omen of Clarity here: in Forever it is a passive (no duration, the
-    -- passive flag set, in every build from 70009 to 70755), and a passive cannot be cast - the row
-    -- could only ever have offered a button that did nothing.
-    { key = "thorns", spellID = 467, class = "DRUID", scope = "self",
-      names = { "Thorns" }, cast = { "Thorns" },
-      icon = "Interface\\Icons\\Spell_Nature_Thorns" },
+    -- Thorns is a group buff now (with Mark of the Wild above). There is no Omen of Clarity here: in
+    -- Forever it is a passive (no duration, the passive flag set, in every build from 70009 to
+    -- 70755), and a passive cannot be cast - the row could only ever have offered a button that did
+    -- nothing.
 
     -- Righteous Fury is threat, so it belongs to a tanking paladin and nobody else - and to a holy
     -- paladin it is dangerous, which is why the shield alone can't decide this: holy paladins carry

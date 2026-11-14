@@ -1215,7 +1215,7 @@ function BW:Compute()
                         entries[#entries + 1] = { key = def.key, def = def, mode = "cast", spell = mine,
                             targets = missing, target = missing[1], expiring = expiring }
                     end
-                elseif Eligible(def, me) and not me.unreadable then
+                elseif not def.noAsk and Eligible(def, me) and not me.unreadable then
                     local who = Providers(def, providers[def.class], members)
                     local ok, left = HasBuff(me.auras, def.names)
                     if who and not ok then
@@ -1357,7 +1357,7 @@ function BW:BuildPreview()
     for _, def in ipairs(BW.BUFFS) do
         if #out >= 5 then break end
         if def.class and def.class ~= myClass and (def.scope == "group" or def.scope == "blessing")
-            and BuffEnabled(def) then
+            and not def.noAsk and BuffEnabled(def) then
             out[#out + 1] = { mode = "ask", spell = SpellName(def), icon = BW.IconFor(def),
                 preview = "A groupmate has this buff (grey). Click whispers them to ask for it." }
         end

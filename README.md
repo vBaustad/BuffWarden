@@ -11,10 +11,11 @@ it. When someone else has it, a click whispers them to ask. When nothing is miss
 ## What it does
 
 - **Your own buffs.** Inner Fire (and Shadowguard or Touch of Weakness for troll and undead priests), Mage
-  Armor, Demon Skin, Paladin auras, Aspects, Trueshot Aura, Lightning or Water Shield and Thorns, for the
-  class that uses them.
-- **Group buffs.** Power Word: Fortitude, Divine Spirit, Arcane Intellect, Mark of the Wild and Blessings.
-  Shadow Protection can be turned on in the settings.
+  Armor, Demon Skin, Paladin auras, Aspects, Trueshot Aura and Lightning or Water Shield, for the class
+  that uses them.
+- **Group buffs.** Power Word: Fortitude, Divine Spirit, Arcane Intellect, Mark of the Wild, Thorns and
+  Blessings. Shadow Protection can be turned on in the settings. Thorns reminds only the druid: nobody
+  else is told to ask for it.
 - **Gold icon: you can cast it.** The number shows how many in your group are missing it. A click casts it on
   the nearest one.
 - **Grey icon: a groupmate has it.** A click whispers them: *"Could I get Arcane Intellect, please? :)"*.
