@@ -547,3 +547,27 @@ BW.POISONS = {
 -- The order of the poison row: the damage poisons first, then the ones that slow or weaken.
 BW.POISON_ORDER = { "instant", "deadly", "wound", "occult", "crippling", "mindnumbing",
     "atrophic", "numbing", "sebacious" }
+
+-- A WEAPON HAS TWO PLACES FOR A COAT, AND A ROGUE USES BOTH: a poison and a sharpening stone at once
+-- (the user, 2026-11-14). The client data says why. The classic poisons enchant through spell effect
+-- 360 - the same effect as the shaman's Rockbiter and Flametongue - while every stone and oil uses
+-- effect 54, and the client's ItemEnchantType has Temporary (2) and Imbue (3) as separate types.
+-- C_Item.GetWeaponEnchantInfo hands back one row per place, so a poisoned and sharpened blade is two
+-- rows. BuffWarden read the first row that had anything on it, which made a stone count as a poison
+-- and the other way round.
+--
+-- So a row is told apart by its ENCHANT ID, not by its enchantType or its position: the IDs below are
+-- what each poison in BW.POISONS puts on the blade (the effect's MiscValue[0], build 1.60.1.70790),
+-- and none of the 18 stones and oils in BW.WEAPON_ENHANCERS uses any of them. The value says which
+-- place the poison takes. Four new poisons - Occult, Atrophic, Numbing, Sebacious - enchant through
+-- effect 54 like a stone, so they take the stone's place and leave no room for one: "temp".
+BW.POISON_ENCHANTS = {
+    [323] = "imbue", [324] = "imbue", [325] = "imbue", [623] = "imbue", [624] = "imbue",
+    [625] = "imbue",                                                      -- Instant Poison I-VI
+    [7] = "imbue", [8] = "imbue", [626] = "imbue", [627] = "imbue", [2630] = "imbue",  -- Deadly I-V
+    [703] = "imbue", [704] = "imbue", [705] = "imbue", [706] = "imbue",  -- Wound Poison I-IV
+    [22] = "imbue", [603] = "imbue",                                      -- Crippling Poison I-II
+    [35] = "imbue", [23] = "imbue", [643] = "imbue",                      -- Mind-numbing I-III
+    [7542] = "temp", [7651] = "temp",                                     -- Occult Poison I-II
+    [7256] = "temp", [7255] = "temp", [7254] = "temp",                    -- Atrophic, Numbing, Sebacious
+}

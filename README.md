@@ -37,7 +37,9 @@ it. When someone else has it, a click whispers them to ask. When nothing is miss
   that fits (never for a fishing pole).
 - **Poisons, for rogues.** Every poison you carry gets an icon, at the strongest rank your level
   allows. Left-click puts it on your main hand, right-click on your off hand, and the row stays until
-  both hands are coated. In the settings you can leave a hand out.
+  both hands are coated. In the settings you can leave a hand out. A weapon takes a poison and a
+  sharpening stone at the same time, so a rogue who carries stones is reminded of those too, for each
+  hand that has none.
 - **It knows what you are.** BuffWarden reads your own class, level, talents, weapons and trained
   spells, so advice meant for a tank doesn't reach a healer. Other players stay private: their spec is
   not readable and BuffWarden never guesses at it.

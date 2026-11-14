@@ -386,21 +386,28 @@ local WEAPON_SLOTS = {
     { slot = 1, inv = 17, key = "weaponoff",  label = "Off hand" },
 }
 
--- What is on this weapon: { left = seconds, icon = fileID } - left 0 means nothing on it.
+-- What is on this weapon: { left = seconds, icon = fileID } - left 0 means nothing on it - plus the
+-- two coats a rogue keeps apart: .poison and .other, each { left, icon, id, slot } or nil.
 -- nil means the slot has nothing to say (no such weapon slot, or the call isn't there).
 local function WeaponEnchant(slot)
     if not (C_Item and C_Item.GetWeaponEnchantInfo) then return nil end
     local ok, list = pcall(C_Item.GetWeaponEnchantInfo, slot)
     if not ok or type(list) ~= "table" then return nil end
     local state = { left = 0 }
-    -- The call returns one row per enchant slot, so we look for the row that has something on it
-    -- rather than taking the first.
+    -- The call returns one row per enchant slot, so we look at every row that has something on it
+    -- rather than taking the first. `left`, `icon` and `kind` stay the first such row, which is what
+    -- every class but the rogue reads; `poison` and `other` sort each row by its enchant ID
+    -- (BW.POISON_ENCHANTS says why the ID and not the type).
     for _, e in ipairs(list) do
         if Clean(e.hasEnchant) then
-            state.left = (Clean(e.timeLeft) or 0) / 1000
-            state.icon = Clean(e.enchantIconID)
-            state.kind = Clean(e.enchantType)
-            break
+            local left = (Clean(e.timeLeft) or 0) / 1000
+            local icon, id = Clean(e.enchantIconID), Clean(e.enchantID)
+            if state.left <= 0 then
+                state.left, state.icon, state.kind = left, icon, Clean(e.enchantType)
+            end
+            local place = id and BW.POISON_ENCHANTS[id]
+            local part = { left = left, icon = icon, id = id, slot = place }
+            if place then state.poison = state.poison or part else state.other = state.other or part end
         end
     end
     return state
@@ -538,17 +545,28 @@ function BW.CarryingImbue(name) return Carrying(BW.MAGE_IMBUES, name) end
 function BW.CarryingFamiliar(name) return Carrying(BW.MAGE_FAMILIARS, name) end
 
 -- What we'd offer for this weapon slot, or nil when there is nothing to say.
-local function WeaponEntry(w)
+-- `side` is for a rogue, whose hand has two coats: "poison" reads and offers the poison, "stone" the
+-- stone or oil beside it. Every other class leaves it nil and reads whatever is on the weapon.
+local function WeaponEntry(w, side)
     local itemID, subClassID = EquippedWeapon(w.inv)
     if not itemID then return nil end
-    local state = WeaponEnchant(w.slot)
-    if not state then return nil end
+    local full = WeaponEnchant(w.slot)
+    if not full then return nil end
+    local myClass = MyClass()
+    if myClass == "ROGUE" and side ~= "stone" then side = "poison" end
+    local state = full
+    if side == "poison" then
+        state = full.poison or { left = 0 }
+    elseif side == "stone" then
+        -- Occult and the other effect-54 poisons sit in the stone's own place: no room for a stone.
+        if not full.other and full.poison and full.poison.slot == "temp" then return nil end
+        state = full.other or { left = 0 }
+    end
     local missing = state.left <= 0
     local expiring = (not missing) and state.left <= WEAPON_WARN and state.left or nil
     if not missing and not expiring then return nil end
 
-    local myClass = MyClass()
-    local imbue, item
+    local imbue, item, none
     if myClass == "SHAMAN" and w.slot == 0 then
         -- A shaman imbues the weapon with a spell. The imbue goes on the main hand, so only that one.
         local pref = BW.db.imbuePref
@@ -558,13 +576,21 @@ local function WeaponEntry(w)
         -- of the bag rather than being cast, so they travel the item path and not the spell one.
         item = BestScroll("imbue", BW.MAGE_IMBUES, BW.db.mageImbuePref)
         if not item and BW.db.mageImbuePref == "none" then return nil end
-    elseif myClass == "ROGUE" then
+    elseif side == "stone" then
+        -- A rogue's stone, beside the poison rather than instead of it. Only one that fits the blade.
+        item = BestEnhancer(subClassID)
+        if not item then return nil end
+        none = "no stone or oil"
+    elseif side == "poison" then
         -- On the bar a rogue's poisons are a row of their own (PoisonEntries), and which one goes
         -- on which hand is the click's choice. What is left here is the in-combat readout's picture
-        -- for a bare hand, and the case of a rogue with no poison at all, who gets a stone below.
+        -- for a bare hand. No poison carried is no entry: the stone is its own side now, never a
+        -- stand-in for the poison.
         local pref = (w.slot == 0) and BW.db.poisonMain or BW.db.poisonOff
         if pref == "none" then return nil end
         item = CarriedPoisons()[1]
+        if not item then return nil end
+        none = "no poison"
     end
     if not imbue and not item then item = BestEnhancer(subClassID) end
     if not imbue and not item then return nil end   -- nothing usable: never nag
@@ -586,25 +612,26 @@ local function WeaponEntry(w)
         imbue = imbue, item = item, itemName = itemName,
         left = state.left, missing = missing,
         icon = icon or FALLBACK_ICON,
-        label = w.label,
+        label = w.label, none = none,
     }
 end
 
 -- A rogue's poisons on the bar: one icon per poison you carry, the same set on both hands, because
 -- which poison goes where is a choice and the click is where it is made. Left-click coats the main
 -- hand, right-click the off hand. The row stays until every hand you watch has a poison on it - a
--- hand running out still counts as wanting one.
+-- hand running out still counts as wanting one. Only the POISON on a hand counts: a stone beside it
+-- is the other coat (WeaponEnchant), and it has its own icon from WeaponEntry(w, "stone").
 --
--- nil when you carry no poison you can use: the bar then falls back to the stone it offers everyone
--- else. An empty list is the other answer and means the opposite - you have poisons and both hands
--- are coated - so no stone either.
+-- nil when you carry no poison you can use, an empty list when every watched hand is poisoned.
+-- Neither says anything about stones any more.
 local function PoisonEntries()
     local list = CarriedPoisons()
     if #list == 0 then return nil end
     local hands, wanted, bare, soonest = {}, false, false, nil
     for _, w in ipairs(WEAPON_SLOTS) do
-        local state = EquippedWeapon(w.inv) and WeaponEnchant(w.slot)
-        if state then
+        local full = EquippedWeapon(w.inv) and WeaponEnchant(w.slot)
+        if full then
+            local state = full.poison or { left = 0 }
             local pref = (w.slot == 0) and BW.db.poisonMain or BW.db.poisonOff
             local h = { label = w.label, left = state.left, missing = state.left <= 0 }
             h.expiring = (not h.missing) and state.left <= WEAPON_WARN and state.left or nil
@@ -632,6 +659,21 @@ local function PoisonEntries()
             expiring = (not bare) and soonest or nil,
             icon = (C_Item.GetItemIconByID and C_Item.GetItemIconByID(p.id)) or FALLBACK_ICON,
         }
+    end
+    return out
+end
+
+-- The weapon entries the in-combat readout shows and the self-test counts: one per hand, and for a
+-- rogue two, because the poison and the stone are separate coats with separate clocks.
+local function WeaponReadout()
+    local out, rogue = {}, MyClass() == "ROGUE"
+    for _, w in ipairs(WEAPON_SLOTS) do
+        local e = WeaponEntry(w, rogue and "poison" or nil)
+        if e then out[#out + 1] = e end
+        if rogue then
+            e = WeaponEntry(w, "stone")
+            if e then out[#out + 1] = e end
+        end
     end
     return out
 end
@@ -1290,9 +1332,14 @@ function BW:Compute()
     end
 
     if BW.db.weaponBuffs then
-        local poisons = myClass == "ROGUE" and PoisonEntries()
-        if poisons then
-            for _, e in ipairs(poisons) do entries[#entries + 1] = e end
+        if myClass == "ROGUE" then
+            -- Both coats, side by side: the poison row, and a stone for each hand that has none. A
+            -- rogue with no poison yet (below 20) gets the stones alone, as before.
+            for _, e in ipairs(PoisonEntries() or {}) do entries[#entries + 1] = e end
+            for _, w in ipairs(WEAPON_SLOTS) do
+                local e = WeaponEntry(w, "stone")
+                if e then entries[#entries + 1] = e end
+            end
         else
             for _, w in ipairs(WEAPON_SLOTS) do
                 local e = WeaponEntry(w)
@@ -1523,7 +1570,8 @@ local function ButtonOnEnter(self)
         return
     end
     if e.mode == "weapon" then
-        GameTooltip:AddLine(e.label .. ": " .. (e.expiring and "running out" or "no weapon buff"), 1, 1, 1)
+        GameTooltip:AddLine(e.label .. ": " .. (e.expiring and "running out" or e.none or "no weapon buff"),
+            1, 1, 1)
         if e.imbue then
             GameTooltip:AddLine("Click: cast " .. e.imbue, 0.4, 1, 0.4)
         elseif e.itemName then
@@ -2291,24 +2339,23 @@ function BW:UpdateWeaponReadout()
     end
 
     local shown = 0
-    for _, w in ipairs(WEAPON_SLOTS) do
-        -- Same builder as the bar: same icon, same rules about when there is anything to say at all.
-        local e = WeaponEntry(w)
-        if e then
-            shown = shown + 1
-            local f = ReadoutIcon(shown)
-            PlaceIcon(f, shown, readout)
-            f.icon:SetTexture(e.icon)
-            f.icon:SetDesaturated(false)   -- the bar doesn't grey these out either
-            local c = COLORS.weapon
-            f.border:SetVertexColor(c[1], c[2], c[3])
-            f.timer:SetText(e.missing and "" or FmtTime(e.left))
-            local t = COLORS.expiring
-            f.timer:SetTextColor(t[1], t[2], t[3])
-            f.label = e.label
-            f.status = e.missing and "No weapon buff." or (FmtTime(e.left) .. " left.")
-            f:Show()
-        end
+    -- Same builder as the bar: same icon, same rules about when there is anything to say at all.
+    -- For a rogue that is two per hand, the poison and the stone.
+    for _, e in ipairs(WeaponReadout()) do
+        shown = shown + 1
+        local f = ReadoutIcon(shown)
+        PlaceIcon(f, shown, readout)
+        f.icon:SetTexture(e.icon)
+        f.icon:SetDesaturated(false)   -- the bar doesn't grey these out either
+        local c = COLORS.weapon
+        f.border:SetVertexColor(c[1], c[2], c[3])
+        f.timer:SetText(e.missing and "" or FmtTime(e.left))
+        local t = COLORS.expiring
+        f.timer:SetTextColor(t[1], t[2], t[3])
+        f.label = e.label
+        f.status = e.missing and ((e.none and (e.none:gsub("^%l", string.upper) .. ".")) or "No weapon buff.")
+            or (FmtTime(e.left) .. " left.")
+        f:Show()
     end
     for i = shown + 1, #readoutRows do readoutRows[i]:Hide() end
     -- One group, one row: the same width the bar would give that many icons.
@@ -2533,7 +2580,7 @@ function BW:Report(prefix)
         elseif e.mode == "item" then
             cast[#cast + 1] = e.spell .. (e.expiring and " (running out)" or "")
         elseif e.mode == "weapon" then
-            cast[#cast + 1] = e.label .. ": " .. (e.expiring and "running out" or "no weapon buff")
+            cast[#cast + 1] = e.label .. ": " .. (e.expiring and "running out" or e.none or "no weapon buff")
         elseif e.mode == "count" then
             -- Not in "you can cast": in a raid we are reporting, not offering.
             ask[#ask + 1] = ("a Blessing for %d in the raid"):format(#e.targets)
@@ -2864,6 +2911,15 @@ SlashCmdList.BUFFWARDEN = function(msg)
                     tostring(itemID), tostring(subClassID),
                     state and (state.left > 0 and FmtTime(state.left) .. " left" or "none") or "unreadable",
                     stone and tostring(stone.id) or "-", tostring(pref ~= "none")))
+                -- Every row the client gave, as it gave it: whether a poison and a stone really sit
+                -- side by side, and which enchantType each one carries, is read here and not guessed.
+                local ok, rows = pcall(C_Item.GetWeaponEnchantInfo, w.slot)
+                for i, r in ipairs(ok and type(rows) == "table" and rows or {}) do
+                    print(("    row %d: has=%s type=%s id=%s left=%s -> %s"):format(i,
+                        tostring(Clean(r.hasEnchant)), tostring(Clean(r.enchantType)),
+                        tostring(Clean(r.enchantID)), FmtTime((Clean(r.timeLeft) or 0) / 1000),
+                        BW.POISON_ENCHANTS[Clean(r.enchantID) or 0] and "poison" or "stone/oil/other"))
+                end
             end
         end
         if c == "ROGUE" then
@@ -2943,10 +2999,7 @@ function BW.SelfTest()
     note("food owns=%s willing=%s", tostring(owns), tostring(willing))
 
     -- Weapon enchants: item state, so this is the one read that works whatever else is restricted.
-    local weapons = 0
-    for _, w in ipairs(WEAPON_SLOTS) do
-        if WeaponEntry(w) then weapons = weapons + 1 end
-    end
+    local weapons = #WeaponReadout()
     note("%d weapon", weapons)
 
     local entries = BW:Compute()

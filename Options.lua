@@ -520,7 +520,7 @@ function BW:BuildOptions()
         -- The same sentence on both, because an (i) has to stand on its own.
         local POISON_NOTE = "Shows every poison you carry until this hand has one: left-click puts "
             .. "it on your main hand, right-click on your off hand. BuffWarden uses the strongest "
-            .. "rank your level allows."
+            .. "rank your level allows. A stone goes on beside the poison and is shown on its own."
         L.Check("Poison on my main hand", POISON_NOTE,
             function() return db.poisonMain ~= "none" end,
             function(v) db.poisonMain = v and "auto" or "none"; BW:Refresh() end)
