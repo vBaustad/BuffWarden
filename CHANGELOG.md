@@ -1,6 +1,6 @@
 # BuffWarden
 
-## Unreleased
+## 1.2.0
 
 - **Thorns for the whole group.** Druids are now reminded when anyone in the group is missing Thorns, not only themselves, and a click casts it on the next one who needs it. Nobody else in the group is told to ask the druid for it.
 - **Rogues get sharpening stones as well as poisons.** A weapon holds a poison and a stone at the same time, so a rogue who carries a stone that fits is now reminded of it for each hand that has none, beside the poison row instead of only when no usable poison was in the bags. A stone on a hand no longer counts as that hand's poison either, which hid the poison row while the hand was still unpoisoned. Occult, Atrophic, Numbing and Sebacious Poison sit where the stone would go, so a hand carrying one of those is not offered a stone.
