@@ -14,8 +14,9 @@ it. When someone else has it, a click whispers them to ask. When nothing is miss
   Armor, Demon Skin, Paladin auras, Aspects, Trueshot Aura and Lightning or Water Shield, for the class
   that uses them.
 - **Group buffs.** Power Word: Fortitude, Divine Spirit, Arcane Intellect, Mark of the Wild, Thorns and
-  Blessings. Shadow Protection can be turned on in the settings. Thorns reminds only the druid: nobody
-  else is told to ask for it.
+  Blessings. Shadow Protection, Dampen Magic and Amplify Magic can be turned on in the settings. Thorns,
+  Dampen and Amplify remind only the class that casts them: nobody else is told to ask for them. Dampen
+  and Amplify pull opposite ways, so someone who has either one counts as done for both.
 - **Gold icon: you can cast it.** The number shows how many in your group are missing it. A click casts it on
   the nearest one.
 - **Grey icon: a groupmate has it.** A click whispers them: *"Could I get Arcane Intellect, please? :)"*.

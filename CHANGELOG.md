@@ -1,5 +1,9 @@
 # BuffWarden
 
+## Unreleased
+
+- **Dampen Magic and Amplify Magic for mages**, as asked for in a comment on CurseForge. Both are in the list of buffs in the settings and both start off, because they pull opposite ways: Dampen Magic means less damage from spells but less healing too, Amplify Magic more healing but more damage from spells. Tick one and you are reminded of everyone in the group who has neither, and a click casts it on the nearest one. Someone who already has the other one counts as done, so ticking both never has them fight over a person. Nobody else is told to ask you for them.
+
 ## 1.2.0
 
 - **Thorns for the whole group.** Druids are now reminded when anyone in the group is missing Thorns, not only themselves, and a click casts it on the next one who needs it. Nobody else in the group is told to ask the druid for it.

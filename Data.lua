@@ -238,6 +238,22 @@ BW.BUFFS = {
       names = { "Arcane Intellect", "Arcane Brilliance" },
       cast = { "Arcane Intellect" },
       icon = "Interface\\Icons\\Spell_Holy_MagicalSentry" },
+    -- Dampen and Amplify Magic: a mage casts them on any party member ("the targeted party member"),
+    -- ten minutes each (spellduration 600000 for every rank, build 70959), trained from 12 and 18.
+    -- They pull opposite ways, so which one you want depends on the fight and both start off - a
+    -- CurseForge comment asked for them (2026-11-20). Each counts the other as done: a person who
+    -- carries either is left alone, so ticking both can never make the two fight over somebody, and
+    -- another mage's choice is never cast over. `noAsk`, as with Thorns: nobody is told to ask.
+    { key = "dampen", spellID = 604, class = "MAGE", scope = "group", default = false, noAsk = true,
+      names = { "Dampen Magic", "Amplify Magic" }, cast = { "Dampen Magic" },
+      note = "Less damage from spells, and less healing too. Off until you tick it. Someone who has "
+          .. "Amplify Magic counts as done, so the two never fight over a person.",
+      icon = "Interface\\Icons\\Spell_Nature_AbolishMagic" },
+    { key = "amplify", spellID = 1008, class = "MAGE", scope = "group", default = false, noAsk = true,
+      names = { "Amplify Magic", "Dampen Magic" }, cast = { "Amplify Magic" },
+      note = "More healing taken, and more damage from spells too. Off until you tick it. Someone "
+          .. "who has Dampen Magic counts as done, so the two never fight over a person.",
+      icon = "Interface\\Icons\\Spell_Holy_FlashHeal" },
     { key = "wild", spellID = 1126, class = "DRUID", scope = "group", minLevel = 1,
       names = { "Mark of the Wild", "Gift of the Wild" },
       cast = { "Mark of the Wild" },
