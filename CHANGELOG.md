@@ -1,6 +1,6 @@
 # BuffWarden
 
-## Unreleased
+## 1.3.0
 
 - **Dampen Magic and Amplify Magic for mages**, as asked for in a comment on CurseForge. Both are in the list of buffs in the settings and both start off, because they pull opposite ways: Dampen Magic means less damage from spells but less healing too, Amplify Magic more healing but more damage from spells. Tick one and you are reminded of everyone in the group who has neither, and a click casts it on the nearest one. Someone who already has the other one counts as done, so ticking both never has them fight over a person. Nobody else is told to ask you for them.
 
