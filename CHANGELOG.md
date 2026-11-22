@@ -1,5 +1,9 @@
 # BuffWarden
 
+## 1.4.0
+
+- **Choose who gets Thorns**, as asked for in player feedback. Druids have a "Thorns for" setting under the list of buffs: everyone (as before), melee classes and the tank, you and the tank, or only you. You are always included. Melee classes are warriors, rogues, paladins, shamans and druids, whatever their spec. The tank is whoever is marked as tank in the group: right-click a portrait, then Set Role > Tank. The group leader can mark anyone, and players can mark themselves. The icon's number and its click follow your choice.
+
 ## 1.3.0
 
 - **Dampen Magic and Amplify Magic for mages**, as asked for in a comment on CurseForge. Both are in the list of buffs in the settings and both start off, because they pull opposite ways: Dampen Magic means less damage from spells but less healing too, Amplify Magic more healing but more damage from spells. Tick one and you are reminded of everyone in the group who has neither, and a click casts it on the nearest one. Someone who already has the other one counts as done, so ticking both never has them fight over a person. Nobody else is told to ask you for them.
