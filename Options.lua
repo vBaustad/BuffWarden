@@ -49,7 +49,7 @@ local HELP = {
       .. "Wild, Blessings), food, and the buff on your weapon - stones, oils, imbues and poisons. When "
       .. "nothing is missing, nothing is shown." },
     { "One click to fix it",
-      "|cffffd24dGold|r: you can cast it yourself. The number is how many in your group are missing "
+      "|cffffd24dGold|r: you can cast it yourself. The number is how many who need it don't have "
       .. "it, and a click casts it on the nearest one.\n"
       .. "|cff8fa6c0Grey|r: a groupmate has it. A click whispers them to ask.\n"
       .. "|cffff7a1aOrange|r: it's running out soon." },
@@ -428,6 +428,26 @@ function BW:BuildOptions()
             def.note or (def.scope == "self" and "A buff you put on yourself." or "A buff for the whole group."))
     end
     L.y = rowY - math.ceil(#BW.BUFFS / 2) * ROW_H
+
+    if myClass == "DRUID" then
+        -- Looked up each time it is shown, so "the tank" admits it when that is nobody right now:
+        -- otherwise that choice looks exactly like "Only you" and nothing on screen says why.
+        local thornsLabels = setmetatable({}, { __index = function(_, k)
+            local label = BW.THORNS_LABEL[k] or tostring(k)
+            if k == "tank" and IsInGroup() and not BW.AnyTankMarked() then
+                return label .. " |cffff5555(none marked)|r"
+            end
+            return label
+        end })
+        L.Gap(BLOCK_GAP)
+        L.Cycle("Thorns for", "Who you are reminded to put Thorns on. You are always one of them. "
+            .. "Melee classes are warriors, rogues, paladins, shamans and druids: BuffWarden can't see "
+            .. "who is healing. The tank is whoever the group has marked: right-click a portrait > "
+            .. "Set Role > Tank, which the leader can do for anyone and each player for themselves.",
+            BW.THORNS_CHOICES, thornsLabels,
+            BW.ThornsFor,
+            function(v) db.thornsFor = v; BW:Refresh() end)
+    end
 
     if myClass == "PALADIN" then
         L.Check("Show a row of blessing buttons",

@@ -16,8 +16,10 @@ it. When someone else has it, a click whispers them to ask. When nothing is miss
 - **Group buffs.** Power Word: Fortitude, Divine Spirit, Arcane Intellect, Mark of the Wild, Thorns and
   Blessings. Shadow Protection, Dampen Magic and Amplify Magic can be turned on in the settings. Thorns,
   Dampen and Amplify remind only the class that casts them: nobody else is told to ask for them. Dampen
-  and Amplify pull opposite ways, so someone who has either one counts as done for both.
-- **Gold icon: you can cast it.** The number shows how many in your group are missing it. A click casts it on
+  and Amplify pull opposite ways, so someone who has either one counts as done for both. A druid chooses
+  who Thorns is for: everyone, melee classes and the tank, the druid and the tank, or the druid alone.
+  The tank is whoever is marked as one with Set Role.
+- **Gold icon: you can cast it.** The number shows how many who need it don't have it. A click casts it on
   the nearest one.
 - **Grey icon: a groupmate has it.** A click whispers them: *"Could I get Arcane Intellect, please? :)"*.
   BuffWarden only suggests groupmates who are high enough level to have the spell, and only asks for a talent

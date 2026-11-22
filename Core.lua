@@ -26,6 +26,7 @@ local defaults = {
     blessFor     = {},      -- ["Name-Realm"] = blessing kind the player picked for them
     blessForClass = {},     -- ["MAGE"] = blessing kind the player picked for every mage
     blessKings   = false,   -- Kings to everyone it is known for, even the Might classes
+    thornsFor    = "everyone", -- druid: who is reminded about Thorns, one of BW.THORNS_CHOICES
     blessRow     = true,    -- paladins: the blessing buttons, on their own row above the reminders
     blessNames   = true,    -- one line under that row: who you would buff next, and which blessing
     perRow       = 12,      -- icons on one line before a second line starts
@@ -855,6 +856,40 @@ local function Eligible(def, m)
     return true
 end
 
+-- A tank is who the group has marked as one (right-click > Set Role, or the group finder), never who
+-- we think looks like one: a warrior may be fury, and a shield has been wrong here before.
+local function MarkedTank(unit)
+    return UnitGroupRolesAssigned ~= nil and Clean(UnitGroupRolesAssigned(unit)) == "TANK"
+end
+
+-- For the settings, which say so when "the tank" is nobody at the moment.
+function BW.AnyTankMarked()
+    for _, u in ipairs(GroupUnits()) do
+        if UnitExists(u) and MarkedTank(u) then return true end
+    end
+    return false
+end
+
+-- The saved choice is data: one of the choices, or everyone.
+function BW.ThornsFor()
+    local who = BW.db.thornsFor
+    for _, choice in ipairs(BW.THORNS_CHOICES) do
+        if who == choice then return who end
+    end
+    return "everyone"
+end
+
+-- Is this one of the people the caster wants the buff on? It narrows who WE remind ourselves to buff
+-- and nothing else.
+local function Wanted(def, m)
+    if not def.choosesWho or m.isMe then return true end
+    local who = BW.ThornsFor()
+    if who == "everyone" then return true end
+    if who == "self" then return false end
+    if MarkedTank(m.unit) then return true end
+    return who == "melee" and BW.MELEE_CLASSES[m.class] == true
+end
+
 -- The blessing this member should get from us, and why. Returns spell, reason - the reason goes in the
 -- tooltip, so a choice you disagree with is visible and can be changed with /bwarden bless.
 local function KindSpell(kind)
@@ -942,8 +977,8 @@ local function BlessingFor(m)
         end
     end
 
-    -- 5. The role, when the group has roles at all (Forever may not: then this simply never fires,
-    -- and the class defaults below carry the whole rule on their own).
+    -- 5. The role, when the group has given one (Forever has Set Role, and a groupmate's reads unhidden:
+    -- measured in a city 2026-11-22). With none, the class defaults below carry the rule on their own.
     local role = m.unit and UnitGroupRolesAssigned and Clean(UnitGroupRolesAssigned(m.unit))
     if role == "TANK" then
         -- No Sanctuary in Forever, so a tank gets the next best thing.
@@ -1245,7 +1280,7 @@ function BW:Compute()
                 if mine then
                     local missing, expiring = {}, nil
                     for _, m in ipairs(members) do
-                        if Eligible(def, m) and not m.unreadable then
+                        if Eligible(def, m) and Wanted(def, m) and not m.unreadable then
                             local ok, left = HasBuff(m.auras, def.names)
                             if not ok then
                                 missing[#missing + 1] = m
@@ -1389,7 +1424,7 @@ function BW:BuildPreview()
             if def.scope ~= "self" and not doneGroup then
                 doneGroup = true
                 e.targets = { {}, {}, {} }
-                e.preview = "A buff you can cast. The number is how many in your group are missing it; "
+                e.preview = "A buff you can cast. The number is how many who need it don't have it; "
                     .. "click casts it on the nearest one."
             elseif def.scope == "self" and not doneSelf then
                 doneSelf = true
@@ -3051,6 +3086,7 @@ local f = CreateFrame("Frame")
 f:RegisterEvent("PLAYER_LOGIN")
 f:RegisterEvent("PLAYER_ENTERING_WORLD")
 f:RegisterEvent("GROUP_ROSTER_UPDATE")
+f:RegisterEvent("PLAYER_ROLES_ASSIGNED")       -- somebody marked tank: Thorns and Blessings follow it
 f:RegisterEvent("UNIT_AURA")
 f:RegisterEvent("UNIT_CONNECTION")
 f:RegisterEvent("PLAYER_REGEN_ENABLED")

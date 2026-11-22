@@ -11,6 +11,7 @@ local ADDON, BW = ...
 --             "blessing" = one per paladin in the group, "food" = eaten, not cast (all special-cased
 --             in Core)
 --   who       nil = everyone, "mana" = only classes that use mana
+--   choosesWho  the one who casts it chooses who is reminded about (BW.ThornsFor)
 --   spellID   any rank of the spell; its texture is the icon (works even when you can't cast it)
 --   icon      fallback icon path, only if the client doesn't know the spell ID
 --   minLevel  level a groupmate needs before we suggest asking them for it (their spellbooks can't be read)
@@ -89,6 +90,22 @@ BW.BLESSING_GONE = {
     salvation = "Blessing of Salvation",
     light     = "Blessing of Light",
 }
+
+-- Who Thorns can be for: the druid's choice (a player's feedback, 2026-11-22: "not everyone needs
+-- thorns in my group, just me and the tank in dungeons"). Each choice holds the one before it, and
+-- the druid is in all of them. "everyone" is the default: what it was before there was a choice.
+BW.THORNS_CHOICES = { "everyone", "melee", "tank", "self" }
+BW.THORNS_LABEL = {
+    everyone = "Everyone",
+    melee = "Melee classes and the tank",
+    tank = "You and the tank",
+    self = "Only you",
+}
+-- The classes "melee" means, by class and never by spec, which we can't read for anyone else. So the
+-- three that might be healing are in: Thorns on a resto shaman costs one cast, and leaving the class
+-- out would drop every enhancement shaman, feral druid and paladin in melee. A hunter is out on the
+-- same ground that keeps Might off one: they fight at range.
+BW.MELEE_CLASSES = { WARRIOR = true, ROGUE = true, PALADIN = true, SHAMAN = true, DRUID = true }
 
 -- What each of a class's three talent tabs means, in the client's own tab order. Only the classes
 -- a rule actually asks about are here: the profile is class-general, so add one when something needs
@@ -263,8 +280,10 @@ BW.BUFFS = {
     -- and has none of the "only one ... per Paladin" wording the blessings carry. It used to be kept
     -- on the druid alone because "one target" had been read as "one person" (the user, 2026-11-14:
     -- "man kan gi thorns til alle i gruppa"). `noAsk`: nobody else is told to ask the druid for it -
-    -- a ten-minute buff would put that request on everyone's bar six times an hour.
-    { key = "thorns", spellID = 467, class = "DRUID", scope = "group", noAsk = true,
+    -- a ten-minute buff would put that request on everyone's bar six times an hour. That everyone
+    -- CAN carry it doesn't mean everyone needs it, so the druid chooses who (`choosesWho`).
+    { key = "thorns", spellID = 467, class = "DRUID", scope = "group", noAsk = true, choosesWho = true,
+      note = "Damages whoever hits the one wearing it. A druid can choose who it is for, below this list.",
       names = { "Thorns" }, cast = { "Thorns" },
       icon = "Interface\\Icons\\Spell_Nature_Thorns" },
     { key = "blessing", label = "Blessings", spellID = 19740, class = "PALADIN", scope = "blessing", minLevel = 4,
